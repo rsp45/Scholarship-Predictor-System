@@ -4,9 +4,9 @@ import numpy as np
 import joblib
 import os
 
-# ==========================================
+
 # 1. SETUP & CONFIGURATION
-# ==========================================
+
 st.set_page_config(
     page_title="Scholarship Priority System",
     page_icon="🎓",
@@ -18,9 +18,9 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, 'models', 'scholarship_model.pkl')
 DATA_PATH = os.path.join(BASE_DIR, 'data_generation', 'raw_data.csv')
 
-# ==========================================
+
 # 2. LOAD RESOURCES (Cached for Speed)
-# ==========================================
+
 @st.cache_resource
 def load_resources():
     # Load Model
@@ -41,9 +41,9 @@ def load_resources():
 
 pipeline, df_students = load_resources()
 
-# ==========================================
+
 # 3. HELPER: PREDICTION FUNCTION
-# ==========================================
+
 def predict_score(input_df):
     """
     Takes a single-row DataFrame with the 8 required features 
@@ -70,18 +70,18 @@ def predict_score(input_df):
         st.error(f"Prediction Error: {e}")
         return 0, "Error", "gray"
 
-# ==========================================
+
 # 4. DASHBOARD UI
-# ==========================================
+
 st.title("🎓 Intelligent Scholarship Allocator")
 st.markdown("### ML-Powered Decision Support System")
 
 # Create Tabs
 tab1, tab2 = st.tabs(["📝 Manual Entry", "🔍 Search Applicant"])
 
-# --------------------------------------------------------------------------
+
 # TAB 1: MANUAL ENTRY (The "What-If" Scenario)
-# --------------------------------------------------------------------------
+
 with tab1:
     st.write("Enter student details manually to check eligibility.")
     
@@ -126,9 +126,9 @@ with tab1:
         with m2:
             st.markdown(f"### Recommendation: :{color}[{status}]")
 
-# --------------------------------------------------------------------------
+
 # TAB 2: SEARCH APPLICANT (The "Database" Scenario)
-# --------------------------------------------------------------------------
+
 with tab2:
     if df_students is not None:
         st.write("Search for an existing student from the database.")

@@ -5,7 +5,7 @@
 ![Scikit-Learn](https://img.shields.io/badge/ML-Ridge%20Regression-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-> **An AI-powered decision support system designed to automate, standardize, and de-bias university financial aid allocation.**
+> **An ML-powered decision support system designed to automate, standardize, and de-bias university financial aid allocation.**
 
 ---
 
@@ -34,6 +34,55 @@ The **Intelligent Scholarship Allocator** is a Machine Learning pipeline that:
 3.  **Visualizes** the decision logic via an interactive Dashboard for admissions officers.
 
 ---
+
+## Scholarship Criteria & Scoring Logic
+
+The **Intelligent Scholarship Allocator** does not use random selection. It calculates a **Priority Score (0-100)** based on a transparent, weighted formula designed to balance **Financial Need**, **Academic Merit**, and **Social Inclusion**.
+
+### 1. The "Fairness Formula"
+The final score is a weighted aggregate of three pillars:
+
+$$\text{Priority Score} = (0.4 \times \text{Need}) + (0.4 \times \text{Merit}) + (0.2 \times \text{Policy})$$
+
+### 2. Component Breakdown
+
+####  A. Financial Need (40%)
+* **Objective:** Prioritize students from lower-income backgrounds.
+* **Logic:** We use a **Log-Normal Decay** function.
+    * Income < ₹2 Lakhs ➝ **Max Score (~100 points)**
+    * Income > ₹20 Lakhs ➝ **Min Score (~0 points)**
+* *Why?* This ensures that a student earning ₹3L vs ₹4L has a bigger score difference than a student earning ₹25L vs ₹26L.
+
+####  B. Academic Merit (40%)
+* **Objective:** Reward hard work and talent.
+* **Logic:** Average percentile of three key exams:
+    1.  **12th Grade Percentage**
+    2.  **Mh-CET Percentile**
+    3.  **JEE Mains Percentile**
+
+####  C. Social Policy & Bonuses (20%)
+* **Objective:** Adhere to government Affirmative Action mandates and University policies.
+* **Bonuses Applied:**
+
+| Criterion | Category | Bonus Points |
+| :--- | :--- | :--- |
+| **Caste Category** | General | +0 |
+| | OBC (Other Backward Class) | +5 |
+| | SC (Scheduled Caste) | +10 |
+| | ST (Scheduled Tribe) | +15 |
+| **Domicile** | Maharashtra State | +5 |
+| **Extracurriculars** | Sports/Arts (0-10 Scale) | +1 to +10 |
+
+---
+
+### 3. Score Interpretation (The Output)
+Once the model calculates the score, the applicant is classified into one of three tiers:
+
+| Priority Score | Status | Recommendation |
+| :--- | :--- | :--- |
+| **80 - 100** |  **High Priority** | **Full Scholarship (100% Waiver)**. Highly recommended for immediate funding. |
+| **50 - 79** |  **Medium Priority** | **Partial Aid (50% Waiver)**. Recommended if funds are available. |
+| **0 - 49** | **Low Priority** | **No Aid**. The applicant does not meet the current financial/merit threshold. |
 
 ## Key Features
 
@@ -93,7 +142,7 @@ Scholarship-Predictor-System/
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/YOUR_USERNAME/Scholarship-Predictor-System.git](https://github.com/rsp_45/Scholarship-Predictor-System.git)
+git clone [https://github.com/YOUR_USERNAME/Scholarship-Predictor-System.git](https://github.com/rsp45/Scholarship-Predictor-System.git)
 cd Scholarship-Predictor-System
 
 ```
@@ -141,7 +190,7 @@ python -m streamlit run app/app.py
 
 We chose **Ridge Regression** over standard Linear Regression to handle multicollinearity between correlated academic scores (e.g., JEE and CET percentiles).
 
-* **R² Score:** ~0.95 (Indicates excellent fit).
+* **R² Score:** ~0.95 on synthetic validation data.
 * **MAE (Mean Absolute Error):** ~1.2 points.
 * **Why Ridge?** It penalizes extreme weights, ensuring the model remains stable and doesn't over-rely on a single exam score.
 
