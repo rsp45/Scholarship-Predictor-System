@@ -1,0 +1,18 @@
+# --- 1. Python Junk ---
+__pycache__/
+*.pyc
+venv/
+.env
+
+# --- 2. Jupyter Checkpoints ---
+.ipynb_checkpoints
+
+# --- 3. FORBIDDEN FILES (Per Instructions) ---
+# Do not upload heavy data or models
+*.csv
+*.pkl
+*.npy
+*.db
+
+# --- 4. OS Junk ---
+.DS_Store
