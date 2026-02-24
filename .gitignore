@@ -13,6 +13,8 @@ venv/
 *.pkl
 *.npy
 *.db
+*.ipynb
+*.pdf
 
 # --- 4. OS Junk ---
 .DS_Store

@@ -196,12 +196,23 @@ We chose **Ridge Regression** over standard Linear Regression to handle multicol
 
 ---
 
-## Future Roadmap
+## Project Timeline & Retraining Schedule
 
-* [ ] **SQL Integration:** Migrate from CSV to PostgreSQL for secure, persistent storage.
-* [ ] **Advanced Models:** Implement **Random Forest** to capture non-linear policy rules.
-* [ ] **Batch Processing:** Allow upload of bulk CSVs to score 500+ students at once.
-* [ ] **Auth System:** Login for University Administrators.
+| Phase | Date Range | Tasks & Milestones | Retraining |
+| :--- | :--- | :--- | :---: |
+| **Phase 1:** Project Initiation & Base Setup | Feb 2 – Feb 13, 2026 | Requirement analysis, defining the applicant schema, and building the initial synthetic data generator (`generator.py`) to output raw CSVs. | - |
+| Phase 1 Retraining | Feb 15, 2026 (Sun) | Train the initial Base ML Model on static synthetic data. | 🔄 Manual Base Training |
+| **Phase 2:** Database Architecture & UI Setup | Feb 16 – Feb 24, 2026 | Initialize SQLite database (`scholarship.db`) and construct the basic Streamlit interface for viewing records. | - |
+| Phase 2 Retraining | Feb 22, 2026 (Sun) | Model fine-tuning and initial integration tests with Streamlit. | 🔄 Manual Retraining |
+| **Phase 3:** Data Seeding & Schema Mapping | Feb 25 – Feb 28, 2026 | Update `generator.py` to seed the SQLite database directly with 1,000 synthetic applicant records instead of just the CSV. Map Pandas DataFrame columns exactly to the SQLite schema. | - |
+| Phase 3 Retraining | Mar 1, 2026 (Sun) | First Automated Pipeline Test: Train model on newly seeded database records. | ⚙️ Automated Retraining |
+| **Phase 4:** Updation Pipeline Automation | Mar 2 – Mar 7, 2026 | Script the `data_pipeline.py` extraction process. Automate pulling fresh manual entries from SQLite to merge with `raw_data.csv`. Automate preprocessing. | - |
+| Phase 4 Retraining | Mar 8, 2026 (Sun) | Weekly Model Retraining triggered via automated cron job/scheduler. | ⚙️ Automated Retraining |
+| **Phase 5:** Streamlit Dashboard Integration | Mar 9 – Mar 14, 2026 | Build UI forms for manual applicant entry to feed directly into SQLite. Implement dynamic filtering, search, and priority score visualizers. | - |
+| Phase 5 Retraining | Mar 15, 2026 (Sun) | Weekly Model Retraining on dataset expanded by manual UI entries. | ⚙️ Automated Retraining |
+| **Phase 6:** Optimization & Testing | Mar 16 – Mar 21, 2026 | End-to-end testing of the ingestion-to-prediction loop. Optimize SQL query speeds for dashboard loading. Final UI/UX bug fixes. | - |
+| Final Retraining | Mar 22, 2026 (Sun) | Final Pre-Submission Model Retraining for maximum accuracy. | ⚙️ Automated Retraining |
+| **Phase 7:** Submission | Mar 23 – Mar 25, 2026 | Compile the final project report, detail the pipeline architecture, and prepare for the final Viva/Presentation. | 🏁 Complete |
 
 
 ---

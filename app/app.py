@@ -3,10 +3,12 @@ app.py
 ======
 Enterprise-grade Streamlit dashboard for the Scholarship Predictor System.
 
-Provides three tabs:
+Provides five tabs:
   1. Single Applicant Scoring  — predict, save to DB, and explain with SHAP
   2. Batch Processing          — upload CSV, score hundreds of students at once
-  3. Database Records          — review all past predictions stored in SQLite
+  3. Criteria & Info           — scoring formula, component breakdown, tier table
+  4. Timeline                  — visual application workflow
+  5. Database Records          — review all past predictions stored in SQLite
 
 Usage:
     streamlit run app/app.py     # from project root
@@ -100,6 +102,48 @@ st.markdown(
 
     /* ---- General polish ---- */
     section[data-testid="stSidebar"] { background: #fafbfe; }
+
+    /* ---- Timeline ---- */
+    .timeline-step {
+        position: relative;
+        padding: 20px 24px 20px 72px;
+        margin-bottom: 8px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #f8f9ff 0%, #f0f2ff 100%);
+        border-left: 4px solid #667eea;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .10);
+    }
+    .timeline-step .step-number {
+        position: absolute;
+        left: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 1.1rem;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, .30);
+    }
+    .timeline-step h4 { margin: 0 0 4px 0; color: #1a1a2e; }
+    .timeline-step p  { margin: 0; color: #555; font-size: 0.92rem; }
+
+    /* ---- Criteria cards ---- */
+    .criteria-card {
+        padding: 20px;
+        border-radius: 14px;
+        box-shadow: 0 3px 12px rgba(0,0,0,.08);
+        text-align: center;
+        height: 100%;
+    }
+    .criteria-card h2 { margin: 0 0 6px 0; font-size: 2.2rem; }
+    .criteria-card h4 { margin: 0 0 8px 0; }
+    .criteria-card p  { margin: 0; font-size: 0.88rem; color: #444; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -241,6 +285,41 @@ def get_shap_feature_names(pipeline) -> list[str]:
         return [f"Feature {i}" for i in range(n)]
 
 
+def fetch_applicant_options() -> list[dict]:
+    """Return a list of dicts with applicant details for the dropdown."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT application_id, applicant_name, family_income,
+                   caste_category, domicile_maharashtra,
+                   mh_cet_percentile, jee_percentile,
+                   university_test_score, twelfth_percentage,
+                   extracurricular_score
+            FROM applicants
+            ORDER BY applicant_name ASC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [
+        {
+            "application_id": r[0],
+            "applicant_name": r[1],
+            "family_income": r[2],
+            "caste_category": r[3],
+            "domicile_maharashtra": r[4],
+            "mh_cet_percentile": r[5],
+            "jee_percentile": r[6],
+            "university_test_score": r[7],
+            "twelfth_percentage": r[8],
+            "extracurricular_score": r[9],
+        }
+        for r in rows
+    ]
+
+
 # ---------------------------------------------------------------------------
 # 5. BANNER & TITLE
 # ---------------------------------------------------------------------------
@@ -276,27 +355,84 @@ explainer = load_explainer()
 # 8. TABS
 # ---------------------------------------------------------------------------
 
-tab1, tab2, tab3 = st.tabs(
-    ["📝 Single Applicant Scoring", "📦 Batch Processing", "🗄️ Database Records"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    [
+        "📝 Single Applicant Scoring",
+        "📦 Batch Processing",
+        "📋 Criteria & Info",
+        "📅 Timeline",
+        "🗄️ Database Records",
+    ]
 )
 
 # ========================== TAB 1: SINGLE APPLICANT ========================
 
 with tab1:
     st.subheader("Score a New Applicant")
-    st.info("Fill in the applicant's details below and click **Calculate Score**.")
+
+    # --- Applicant Lookup Dropdown ---
+    applicant_options = fetch_applicant_options()
+    option_labels = ["➕ New Applicant (manual entry)"] + [
+        f"{a['application_id']} — {a['applicant_name']}" for a in applicant_options
+    ]
+    selected_option = st.selectbox(
+        "🔍 Look up an existing applicant or enter new details",
+        options=option_labels,
+        index=0,
+        key="applicant_lookup",
+    )
+
+    # Determine defaults based on selection
+    if selected_option == "➕ New Applicant (manual entry)":
+        defaults = {
+            "app_id": f"APP-{uuid.uuid4().hex[:8].upper()}",
+            "name": "",
+            "income": 450_000,
+            "caste": "General",
+            "domicile": "Yes",
+            "extra": 5,
+            "hsc": 75.0,
+            "cet": 80.0,
+            "jee": 70.0,
+            "uni": 65.0,
+        }
+        is_new = True
+    else:
+        # Find the selected applicant in the list
+        sel_idx = option_labels.index(selected_option) - 1  # offset by 1 for the "New" option
+        sel = applicant_options[sel_idx]
+        caste_options = ["General", "OBC", "SC", "ST"]
+        defaults = {
+            "app_id": sel["application_id"],
+            "name": sel["applicant_name"],
+            "income": int(sel["family_income"]),
+            "caste": sel["caste_category"] if sel["caste_category"] in caste_options else "General",
+            "domicile": "Yes" if sel["domicile_maharashtra"] == 1 else "No",
+            "extra": int(sel["extracurricular_score"]),
+            "hsc": float(sel["twelfth_percentage"]),
+            "cet": float(sel["mh_cet_percentile"]),
+            "jee": float(sel["jee_percentile"]),
+            "uni": float(sel["university_test_score"]),
+        }
+        is_new = False
+
+    st.info(
+        "Select an existing applicant from the dropdown to auto-fill, "
+        "or choose **New Applicant** to enter details manually. "
+        "Then click **Calculate Score**."
+    )
 
     # --- Input Form ---
     with st.form("applicant_form", clear_on_submit=False):
         id_col, name_col = st.columns(2)
         with id_col:
             app_id = st.text_input(
-                "Application ID (auto-generated)",
-                value=f"APP-{uuid.uuid4().hex[:8].upper()}",
-                disabled=True,
+                "Application ID",
+                value=defaults["app_id"],
+                disabled=not is_new,
             )
         with name_col:
-            applicant_name = st.text_input("Applicant Name", value="")
+            applicant_name = st.text_input("Applicant Name", value=defaults["name"])
 
         st.markdown("---")
 
@@ -304,24 +440,34 @@ with tab1:
         with c1:
             income = st.number_input(
                 "Annual Family Income (₹)", min_value=0, max_value=5_000_000,
-                value=450_000, step=10_000,
+                value=defaults["income"], step=10_000,
             )
         with c2:
-            caste = st.selectbox("Caste Category", ["General", "OBC", "SC", "ST"])
+            caste_options = ["General", "OBC", "SC", "ST"]
+            caste = st.selectbox(
+                "Caste Category",
+                caste_options,
+                index=caste_options.index(defaults["caste"]),
+            )
         with c3:
-            domicile = st.selectbox("Domicile Maharashtra", ["Yes", "No"])
+            domicile_options = ["Yes", "No"]
+            domicile = st.selectbox(
+                "Domicile Maharashtra",
+                domicile_options,
+                index=domicile_options.index(defaults["domicile"]),
+            )
         with c4:
-            extra = st.slider("Extracurricular Score (0-10)", 0, 10, 5)
+            extra = st.slider("Extracurricular Score (0-10)", 0, 10, defaults["extra"])
 
         c5, c6, c7, c8 = st.columns(4)
         with c5:
-            hsc = st.slider("12th Grade %", 40.0, 100.0, 75.0)
+            hsc = st.slider("12th Grade %", 40.0, 100.0, defaults["hsc"])
         with c6:
-            cet = st.slider("MH-CET Percentile", 0.0, 100.0, 80.0)
+            cet = st.slider("MH-CET Percentile", 0.0, 100.0, defaults["cet"])
         with c7:
-            jee = st.slider("JEE Mains Percentile", 0.0, 100.0, 70.0)
+            jee = st.slider("JEE Mains Percentile", 0.0, 100.0, defaults["jee"])
         with c8:
-            uni = st.slider("University Test Score", 0.0, 100.0, 65.0)
+            uni = st.slider("University Test Score", 0.0, 100.0, defaults["uni"])
 
         submitted = st.form_submit_button(
             "🚀 Calculate Score", type="primary", use_container_width=True
@@ -352,16 +498,19 @@ with tab1:
         score = predict_single(pipeline, input_df)
         tier_label, badge_bg, badge_fg = classify_tier(score)
 
-        # Save to database
-        try:
-            insert_applicant(
-                app_id, applicant_name, income, caste, is_mh,
-                cet, jee, uni, hsc, extra, score,
-            )
-            db_saved = True
-        except Exception as e:
-            db_saved = False
-            db_error = str(e)
+        # Save to database (new applicants only; existing ones already have records)
+        if is_new:
+            try:
+                insert_applicant(
+                    app_id, applicant_name, income, caste, is_mh,
+                    cet, jee, uni, hsc, extra, score,
+                )
+                db_saved = True
+            except Exception as e:
+                db_saved = False
+                db_error = str(e)
+        else:
+            db_saved = None  # skipped for existing applicants
 
         # --- Display Results ---
         res_left, res_right = st.columns([1, 1])
@@ -376,12 +525,14 @@ with tab1:
                 """,
                 unsafe_allow_html=True,
             )
-            if db_saved:
+            if db_saved is True:
                 st.success(
                     f"✅ Record saved to database — **{app_id}** ({applicant_name})"
                 )
-            else:
+            elif db_saved is False:
                 st.error(f"❌ Database error: {db_error}")
+            else:
+                st.info(f"ℹ️ Prediction for existing applicant **{app_id}** — record already in DB.")
 
         with res_right:
             st.markdown("##### 📋 Submitted Details")
@@ -510,9 +661,315 @@ with tab2:
             use_container_width=True,
         )
 
-# ========================== TAB 3: DATABASE RECORDS ========================
+# ========================== TAB 3: CRITERIA & INFO =========================
 
 with tab3:
+    st.subheader("📋 Scholarship Criteria & Scoring Logic")
+    st.markdown(
+        "The system calculates a **Priority Score (0–100)** based on a transparent, "
+        "weighted formula designed to balance **Financial Need**, **Academic Merit**, "
+        "and **Social Inclusion**."
+    )
+
+    # --- The Fairness Formula ---
+    st.markdown("---")
+    st.markdown("#### ⚖️ The Fairness Formula")
+    st.latex(
+        r"\text{Priority Score} = "
+        r"(0.4 \times \text{Need}) + "
+        r"(0.4 \times \text{Merit}) + "
+        r"(0.2 \times \text{Policy})"
+    )
+
+    st.markdown("")
+
+    # --- Weight Cards ---
+    w1, w2, w3 = st.columns(3)
+    with w1:
+        st.markdown(
+            """
+            <div class="criteria-card" style="background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%);">
+                <h2>40%</h2>
+                <h4>💰 Financial Need</h4>
+                <p>Inverse log-normal decay on family income</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with w2:
+        st.markdown(
+            """
+            <div class="criteria-card" style="background: linear-gradient(135deg, #fce4ec 0%, #f8bbd0 100%);">
+                <h2>40%</h2>
+                <h4>📚 Academic Merit</h4>
+                <p>Average of 12th %, MH-CET & JEE percentiles</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with w3:
+        st.markdown(
+            """
+            <div class="criteria-card" style="background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);">
+                <h2>20%</h2>
+                <h4>🏛️ Social Policy</h4>
+                <p>Caste, domicile & extracurricular bonuses</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("")
+
+    # --- Component Breakdown (Expanders) ---
+    st.markdown("#### 📖 Component Breakdown")
+
+    with st.expander("💰 Financial Need (40%)", expanded=False):
+        st.markdown(
+            """
+            **Objective:** Prioritize students from lower-income backgrounds.
+
+            **Logic:** We use a **Log-Normal Decay** function:
+            - Income < ₹2 Lakhs → **Maximum score (~100 points)**
+            - Income > ₹20 Lakhs → **Minimum score (~0 points)**
+
+            **Why?** This ensures that the difference between ₹3L and ₹4L carries more
+            weight than the difference between ₹25L and ₹26L — reflecting the real-world
+            impact of income on educational access.
+            """
+        )
+
+    with st.expander("📚 Academic Merit (40%)", expanded=False):
+        st.markdown(
+            """
+            **Objective:** Reward hard work and talent.
+
+            **Logic:** Average percentile across three key exams:
+            1. **12th Grade Percentage**
+            2. **MH-CET Percentile**
+            3. **JEE Mains Percentile**
+
+            Each exam is weighted equally to prevent over-reliance on a single assessment.
+            """
+        )
+
+    with st.expander("🏛️ Social Policy & Bonuses (20%)", expanded=False):
+        st.markdown(
+            """
+            **Objective:** Adhere to government Affirmative Action mandates
+            and University policies.
+
+            **Bonuses Applied:**
+
+            | Criterion | Category | Bonus Points |
+            | :--- | :--- | :---: |
+            | **Caste Category** | General | +0 |
+            | | OBC (Other Backward Class) | +5 |
+            | | SC (Scheduled Caste) | +10 |
+            | | ST (Scheduled Tribe) | +15 |
+            | **Domicile** | Maharashtra State | +5 |
+            | **Extracurriculars** | Sports/Arts (0-10) | +1 to +10 |
+            """
+        )
+
+    # --- Score Interpretation ---
+    st.markdown("---")
+    st.markdown("#### 🎯 Score Interpretation — Tier Classification")
+
+    t1, t2, t3 = st.columns(3)
+    with t1:
+        st.markdown(
+            """
+            <div class="criteria-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: #064e3b;">
+                <h2>80 – 100</h2>
+                <h4>🟢 High Priority</h4>
+                <p><b>Full Scholarship (100% Waiver)</b><br/>Highly recommended for immediate funding.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with t2:
+        st.markdown(
+            """
+            <div class="criteria-card" style="background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); color: #78350f;">
+                <h2>50 – 79</h2>
+                <h4>🟠 Medium Priority</h4>
+                <p><b>Partial Aid (50% Waiver)</b><br/>Recommended if funds are available.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with t3:
+        st.markdown(
+            """
+            <div class="criteria-card" style="background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%); color: #7f1d1d;">
+                <h2>0 – 49</h2>
+                <h4>🔴 Low Priority</h4>
+                <p><b>No Aid</b><br/>Does not meet the current financial/merit threshold.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# ========================== TAB 4: TIMELINE ================================
+
+with tab4:
+    st.subheader("📅 Project Timeline & Retraining Schedule")
+    st.markdown(
+        "The development of the Intelligent Scholarship Allocator follows a "
+        "**7-phase plan** with **weekly model retraining** milestones."
+    )
+    st.markdown("")
+
+    # --- Project Phases ---
+    phases = [
+        {
+            "phase": "Phase 1",
+            "title": "Project Initiation & Base Setup",
+            "dates": "Feb 2 – Feb 13, 2026",
+            "desc": "Requirement analysis, defining the applicant schema, and building "
+                    "the initial synthetic data generator (generator.py) to output raw CSVs.",
+            "icon": "🚀",
+        },
+        {
+            "phase": "🔄 Retraining",
+            "title": "Phase 1 — Base Model Training",
+            "dates": "Feb 15, 2026 (Sun)",
+            "desc": "Train the initial Base ML Model on static synthetic data.",
+            "icon": "🔄",
+            "is_retrain": True,
+        },
+        {
+            "phase": "Phase 2",
+            "title": "Database Architecture & UI Setup",
+            "dates": "Feb 16 – Feb 24, 2026",
+            "desc": "Initialize SQLite database (scholarship.db) and construct the basic "
+                    "Streamlit interface for viewing records.",
+            "icon": "🗄️",
+        },
+        {
+            "phase": "🔄 Retraining",
+            "title": "Phase 2 — Manual Retraining",
+            "dates": "Feb 22, 2026 (Sun)",
+            "desc": "Model fine-tuning and initial integration tests with Streamlit.",
+            "icon": "🔄",
+            "is_retrain": True,
+        },
+        {
+            "phase": "Phase 3",
+            "title": "Data Seeding & Schema Mapping",
+            "dates": "Feb 25 – Feb 28, 2026",
+            "desc": "Update generator.py to seed the SQLite database directly with 1,000 "
+                    "synthetic applicant records. Map DataFrame columns to the SQLite schema.",
+            "icon": "🌱",
+        },
+        {
+            "phase": "⚙️ Retraining",
+            "title": "Phase 3 — First Automated Pipeline Test",
+            "dates": "Mar 1, 2026 (Sun)",
+            "desc": "Train model on newly seeded database records.",
+            "icon": "⚙️",
+            "is_retrain": True,
+        },
+        {
+            "phase": "Phase 4",
+            "title": "Updation Pipeline Automation",
+            "dates": "Mar 2 – Mar 7, 2026",
+            "desc": "Script the data_pipeline.py extraction process. Automate pulling fresh "
+                    "manual entries from SQLite to merge with raw_data.csv. Automate preprocessing.",
+            "icon": "🔧",
+        },
+        {
+            "phase": "⚙️ Retraining",
+            "title": "Phase 4 — Weekly Automated Retraining",
+            "dates": "Mar 8, 2026 (Sun)",
+            "desc": "Weekly Model Retraining triggered via automated cron job/scheduler.",
+            "icon": "⚙️",
+            "is_retrain": True,
+        },
+        {
+            "phase": "Phase 5",
+            "title": "Streamlit Dashboard Integration",
+            "dates": "Mar 9 – Mar 14, 2026",
+            "desc": "Build UI forms for manual applicant entry to feed directly into SQLite. "
+                    "Implement dynamic filtering, search, and priority score visualizers.",
+            "icon": "📊",
+        },
+        {
+            "phase": "⚙️ Retraining",
+            "title": "Phase 5 — Retraining on Expanded Data",
+            "dates": "Mar 15, 2026 (Sun)",
+            "desc": "Weekly Model Retraining on dataset expanded by manual UI entries.",
+            "icon": "⚙️",
+            "is_retrain": True,
+        },
+        {
+            "phase": "Phase 6",
+            "title": "Optimization & Testing",
+            "dates": "Mar 16 – Mar 21, 2026",
+            "desc": "End-to-end testing of the ingestion-to-prediction loop. Optimize SQL "
+                    "query speeds for dashboard loading. Final UI/UX bug fixes.",
+            "icon": "🧪",
+        },
+        {
+            "phase": "⚙️ Final Retraining",
+            "title": "Pre-Submission Model Retraining",
+            "dates": "Mar 22, 2026 (Sun)",
+            "desc": "Final Pre-Submission Model Retraining for maximum accuracy.",
+            "icon": "⚙️",
+            "is_retrain": True,
+        },
+        {
+            "phase": "Phase 7",
+            "title": "Submission",
+            "dates": "Mar 23 – Mar 25, 2026",
+            "desc": "Compile the final project report, detail the pipeline architecture, "
+                    "and prepare for the final Viva/Presentation.",
+            "icon": "🏁",
+        },
+    ]
+
+    for i, p in enumerate(phases, 1):
+        is_retrain = p.get("is_retrain", False)
+        border_color = "#f59e0b" if is_retrain else "#667eea"
+        bg = (
+            "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)"
+            if is_retrain
+            else "linear-gradient(135deg, #f8f9ff 0%, #f0f2ff 100%)"
+        )
+        badge_bg = (
+            "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
+            if is_retrain
+            else "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+        )
+        st.markdown(
+            f"""
+            <div class="timeline-step" style="border-left-color:{border_color}; background:{bg};">
+                <div class="step-number" style="background:{badge_bg};">{i}</div>
+                <h4>{p['icon']} {p['phase']}: {p['title']}</h4>
+                <p><b>{p['dates']}</b> — {p['desc']}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("")
+    st.markdown("---")
+    st.markdown("#### 🛠️ Technology Behind the Pipeline")
+
+    tech_cols = st.columns(4)
+    tech_items = [
+        ("🐍 Python 3.10+", "Core language"),
+        ("📊 Streamlit", "Interactive dashboard"),
+        ("🧠 Scikit-Learn", "ML model training"),
+        ("💾 SQLite", "Persistent storage"),
+    ]
+    for col, (tech, desc) in zip(tech_cols, tech_items):
+        col.metric(tech, desc)
+
+# ========================== TAB 5: DATABASE RECORDS ========================
+
+with tab5:
     st.subheader("🗄️ Applicant Records — SQLite Database")
 
     if st.button("🔄 Refresh Records", type="secondary"):
