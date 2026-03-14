@@ -1,11 +1,15 @@
-# Intelligent Scholarship Allocator
+# Project Tejas — Intelligent Scholarship Allocator
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-red)
-![Scikit-Learn](https://img.shields.io/badge/ML-Ridge%20Regression-orange)
+![Scikit-Learn](https://img.shields.io/badge/ML-XGBoost%20%7C%20RandomForest-orange)
+![SHAP](https://img.shields.io/badge/Explainability-SHAP-blueviolet)
+![SQLite](https://img.shields.io/badge/Database-SQLite-lightgrey)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 > **An ML-powered decision support system designed to automate, standardize, and de-bias university financial aid allocation.**
+
+> ⚠️ **Note: This is currently a Beta testing version.**
 
 ---
 
@@ -17,7 +21,7 @@
 - [Project Architecture](#-project-architecture)
 - [Installation & Usage](#-installation--usage)
 - [Model Performance](#-model-performance)
-- [Future Roadmap](#-future-roadmap)
+- [Project Timeline](#project-timeline--retraining-schedule)
 
 ---
 
@@ -87,14 +91,31 @@ Once the model calculates the score, the applicant is classified into one of thr
 ## Key Features
 
 ### 1. Instant Applicant Lookup
-* Search for students by **Name** or **Application ID**.
+* Searchable dropdown of all applicants by **Name** or **Application ID**.
 * Instantly retrieve their profile and predicted scholarship tier.
+* Auto-fill form fields for quick re-scoring.
 
 ### 2. "What-If" Analysis (Manual Mode)
 * Admins can manually input student details to test eligibility scenarios.
 * Real-time score calculation based on University Policy logic.
+* New applicants are automatically saved to the SQLite database.
 
-### 3. Fairness-First Logic
+### 3. SHAP Explainability
+* Every prediction is accompanied by a **SHAP Waterfall Plot**.
+* Decomposes the score into per-feature contributions (income impact, merit impact, etc.).
+* Makes all allocation decisions fully transparent and auditable.
+
+### 4. Batch Processing
+* Drag-and-drop **CSV upload** to score hundreds of students at once.
+* Plotly histogram visualization of score distributions.
+* Downloadable results CSV with predicted Priority Scores.
+
+### 5. Database Seeding & Persistence
+* Synthetic data generator seeds **1,000 records directly into SQLite**.
+* All dashboard interactions are persisted in `data/scholarship.db`.
+* Full CRUD visibility via the Database Records tab.
+
+### 6. Fairness-First Logic
 * **Need-Based:** Higher priority for lower-income families (Log-normal distribution handling).
 * **Merit-Based:** Weighted rewards for high JEE/CET/12th scores.
 * **Policy-Based:** Auto-adjustment for Caste Categories and State Domicile.
@@ -105,11 +126,14 @@ Once the model calculates the score, the applicant is classified into one of thr
 
 | Component | Technology |
 | :--- | :--- |
-| **Language** | Python 3.10+ |
-| **Dashboard** | Streamlit |
-| **Machine Learning** | Scikit-Learn (Ridge Regression) |
-| **Data Processing** | Pandas, NumPy |
-| **Visualization** | Matplotlib, Seaborn |
+| **Language** | Python 3.10+, JavaScript/JSX |
+| **Frontend** | React, Vite, Tailwind CSS, Recharts |
+| **Backend API**| FastAPI, Uvicorn |
+| **Machine Learning** | Scikit-Learn (RandomForest, Ridge), XGBoost, LightGBM |
+| **Explainability** | SHAP (SHapley Additive exPlanations) |
+| **Database** | SQLite (WAL mode) |
+| **Data Processing** | Pandas, NumPy, Joblib |
+| **Visualization** | Matplotlib, Seaborn, Plotly |
 | **Version Control** | Git & GitHub |
 
 ---
@@ -118,68 +142,97 @@ Once the model calculates the score, the applicant is classified into one of thr
 
 ```text
 Scholarship-Predictor-System/
-├── data_generation/
-│   └── generator.py       # Script to create synthetic student data
-├── notebooks/
-│   ├── 1_preprocessing.ipynb  # Cleaning & Feature Engineering
-│   ├── 2_eda.ipynb            # Exploratory Data Analysis
-│   └── 3_model_training.ipynb # Ridge Regression Pipeline
-├── models/
-│   ├── scholarship_model.pkl  # Serialized Model + Preprocessor
+│
 ├── app/
-│   └── app.py             # Streamlit Dashboard Source Code
-├── requirements.txt       # Dependencies
-└── README.md              # Documentation
-
+│   ├── app.py                    # Streamlit Dashboard (5 tabs)
+│   └── Banner.jpg                # Dashboard header banner
+│
+├── data/
+│   └── scholarship.db            # SQLite database (seeded by generator)
+│
+├── data_generation/
+│   └── generator.py              # Synthesizes 1,000 records → CSV + DB
+│
+├── src/
+│   ├── __init__.py               # Package marker
+│   ├── data_pipeline.py          # Preprocessing: load, split, scale, encode
+│   ├── db_setup.py               # SQLite schema & initialization
+│   ├── model_trainer.py          # Train RF + XGBoost, save best pipeline
+│   └── test_lightgbm.py          # LightGBM experimental benchmark
+│
+├── models/
+│   ├── scholarship_model.pkl     # Trained Pipeline (preprocessor + model)
+│   ├── shap_explainer.pkl        # Pre-built SHAP TreeExplainer
+│   ├── preprocessor.pkl          # Fitted ColumnTransformer
+│   ├── X_train.npy / X_test.npy  # Processed feature arrays
+│   └── y_train.npy / y_test.npy  # Target arrays
+│
+├── frontend/                     # Enterprise React App
+│   ├── src/pages/                # Tejas UI Views (Decision Center, Admin, etc.)
+│   └── package.json              # Frontend dependencies
+│
+├── backend/                      # FastAPI Backend Server
+│   └── main.py                   # REST API exposing ML predict endpoint
+│
+├── notebooks/
+│   ├── 1_preprocessing.ipynb     # EDA & cleaning exploration
+│   ├── 2_eda.ipynb               # Exploratory Data Analysis
+│   └── 3_model_training.ipynb    # Original model training notebook
+│
+├── Documentation/
+│   └── requirements.txt          # Python dependencies
+│
+├── .gitignore                    # Excludes .csv, .pkl, .db, node_modules
+└── README.md                     # This file
 ```
 
 ---
 
 ##  Installation & Usage
 
-**Note:** Large dataset files are not uploaded to this repository. You must generate the data locally using the provided script.
+**Note:** Model artefacts (`.pkl`, `.npy`), datasets (`.csv`), and the database (`.db`) are **git-ignored**. You must generate them locally after cloning.
 
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/YOUR_USERNAME/Scholarship-Predictor-System.git](https://github.com/rsp45/Scholarship-Predictor-System.git)
+git clone https://github.com/rsp45/Scholarship-Predictor-System.git
 cd Scholarship-Predictor-System
-
 ```
 
 ### 2. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
-
+pip install -r Documentation/requirements.txt
 ```
 
-### 3. Generate Data
+### 3. Generate Data & Seed Database
 
-Run the generator to create the `raw_data.csv` file:
+Run the generator to create `raw_data.csv` **and** seed `data/scholarship.db` with 1,000 synthetic applicant records:
 
 ```bash
 python data_generation/generator.py
-
 ```
 
-*Output: `data_generation/raw_data.csv` created with 2,000 student records.*
+### 4. Run the Data Pipeline
 
-### 4. Train the Model
-
-(Optional) If you want to retrain the model from scratch:
+Preprocess features, fit the scaler/encoder, and save train/test arrays:
 
 ```bash
-# Run the notebooks in order, or use a script if available
-# This will update models/scholarship_model.pkl
-
+python -m src.data_pipeline
 ```
 
-### 5. Launch Dashboard
+### 5. Train the Model
+
+Train RandomForest + XGBoost, auto-select the best model, and generate the SHAP explainer:
+
+```bash
+python -m src.model_trainer
+```
+
+### 6. Launch Dashboard
 
 ```bash
 python -m streamlit run app/app.py
-
 ```
 
 *The app will open in your browser at `http://localhost:8501`.*
@@ -188,11 +241,15 @@ python -m streamlit run app/app.py
 
 ## Model Performance
 
-We chose **Ridge Regression** over standard Linear Regression to handle multicollinearity between correlated academic scores (e.g., JEE and CET percentiles).
+We train **RandomForestRegressor** and **XGBRegressor** in parallel, then auto-select the winner based on R² and MAE on the held-out test set.
 
-* **R² Score:** ~0.95 on synthetic validation data.
-* **MAE (Mean Absolute Error):** ~1.2 points.
-* **Why Ridge?** It penalizes extreme weights, ensuring the model remains stable and doesn't over-rely on a single exam score.
+| Model | R² Score | MAE |
+| :--- | :---: | :---: |
+| RandomForest | ~0.95 | ~1.3 |
+| XGBoost | ~0.96 | ~1.1 |
+| LightGBM (experimental) | ~0.96 | ~1.1 |
+
+The winning model is combined with the preprocessor into a single **Scikit-Learn Pipeline** and a **SHAP TreeExplainer** is saved alongside it for dashboard explainability.
 
 ---
 

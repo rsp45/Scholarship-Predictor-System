@@ -9,3 +9,8 @@ xgboost
 shap
 lightgbm
 plotly
+PyYAML
+fairlearn
+fastapi
+uvicorn[standard]
+pydantic
