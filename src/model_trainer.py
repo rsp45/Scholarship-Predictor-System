@@ -1,11 +1,19 @@
 # FILE: src/model_trainer.py
+# ===========================================================================
+# Trains RandomForestRegressor & XGBRegressor, selects the winner by R²,
+# runs a Fairlearn fairness audit on Caste_Category and Gender,
+# then saves the production pipeline and SHAP explainer.
+# ===========================================================================
+
 import numpy as np
+import pandas as pd
 import joblib
 import os
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score, mean_absolute_error
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
+from fairlearn.metrics import MetricFrame
 import shap
 
 # Set seed for reproducibility
@@ -28,8 +36,12 @@ X_test  = np.load(os.path.join(MODELS_DIR, 'X_test.npy'))
 y_train = np.load(os.path.join(MODELS_DIR, 'y_train.npy'))
 y_test  = np.load(os.path.join(MODELS_DIR, 'y_test.npy'))
 
+# B. Load raw X_test for fairness audit (has Caste_Category & Gender columns)
+X_test_raw = pd.read_csv(os.path.join(MODELS_DIR, 'X_test_raw.csv'))
+
 print(f"   X_train: {X_train.shape}  |  y_train: {y_train.shape}")
 print(f"   X_test:  {X_test.shape}   |  y_test:  {y_test.shape}")
+print(f"   X_test_raw: {X_test_raw.shape}  (for fairness audit)")
 
 # --- 2. Model Training ---
 print("\n--- 2. Training Models ---")
@@ -81,8 +93,46 @@ else:
 
 print(f"\n   WINNER: {best_name}  (R² = {best_r2:.4f}, MAE = {best_mae:.4f})")
 
-# --- 4. Build & Save Production Pipeline ---
-print("\n--- 4. Building Production Pipeline ---")
+# --- 4. Fairness Audit (Fairlearn) ---
+print("\n--- 4. Fairness Audit (Fairlearn MetricFrame) ---")
+
+# A. Get predictions from the winning model
+y_pred = best_model.predict(X_test)
+
+# B. Define the metrics to audit
+fairness_metrics = {
+    "MAE": mean_absolute_error,
+    "R²":  r2_score,
+}
+
+# C. Audit by Caste_Category
+print("\n   ── Fairness Report: by Caste_Category ──")
+caste_frame = MetricFrame(
+    metrics=fairness_metrics,
+    y_true=y_test,
+    y_pred=y_pred,
+    sensitive_features=X_test_raw["Caste_Category"],
+)
+print(f"\n   Overall:")
+print(f"   {caste_frame.overall.to_string()}")
+print(f"\n   By Group:")
+print(f"   {caste_frame.by_group.to_string()}")
+
+# D. Audit by Gender
+print("\n   ── Fairness Report: by Gender ──")
+gender_frame = MetricFrame(
+    metrics=fairness_metrics,
+    y_true=y_test,
+    y_pred=y_pred,
+    sensitive_features=X_test_raw["Gender"],
+)
+print(f"\n   Overall:")
+print(f"   {gender_frame.overall.to_string()}")
+print(f"\n   By Group:")
+print(f"   {gender_frame.by_group.to_string()}")
+
+# --- 5. Build & Save Production Pipeline ---
+print("\n--- 5. Building Production Pipeline ---")
 
 # A. Load the fitted preprocessor from the data pipeline
 preprocessor = joblib.load(os.path.join(MODELS_DIR, 'preprocessor.pkl'))
@@ -100,8 +150,8 @@ pipeline_path = os.path.join(MODELS_DIR, 'scholarship_model.pkl')
 joblib.dump(pipeline, pipeline_path)
 print(f"   C. Saved Pipeline → {pipeline_path}")
 
-# --- 5. SHAP Explainability ---
-print("\n--- 5. Creating SHAP Explainer ---")
+# --- 6. SHAP Explainability ---
+print("\n--- 6. Creating SHAP Explainer ---")
 
 # A. Create a SHAP Explainer on the raw regressor (NOT the full pipeline)
 #    We use X_train (already processed) so SHAP understands the feature space

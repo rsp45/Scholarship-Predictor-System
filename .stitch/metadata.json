@@ -1,0 +1,42 @@
+{
+  "name": "projects/11399070392715853322",
+  "projectId": "11399070392715853322",
+  "title": "Tejas - Intelligent Scholarship Allocator",
+  "visibility": "PRIVATE",
+  "projectType": "PROJECT_DESIGN",
+  "origin": "STITCH",
+  "deviceType": "DESKTOP",
+  "designTheme": {
+    "colorMode": "DARK",
+    "font": "INTER",
+    "roundness": "ROUND_EIGHT",
+    "customColor": "#d5a944",
+    "saturation": 2
+  },
+  "screens": {
+    "admin-overview": {
+      "id": "4ea3cb509e0247a2911ef38cad013a6b",
+      "sourceScreen": "projects/11399070392715853322/screens/4ea3cb509e0247a2911ef38cad013a6b",
+      "width": 2560,
+      "height": 2350,
+      "title": "Tejas Admin Overview Dashboard"
+    },
+    "decision-center": {
+      "id": "b7d789c9eba14dfbb380376edd2e9aed",
+      "sourceScreen": "projects/11399070392715853322/screens/b7d789c9eba14dfbb380376edd2e9aed",
+      "width": 2560,
+      "height": 2088,
+      "title": "Tejas Decision Center Analysis"
+    },
+    "landing-page": {
+      "id": "47c590fd8b824f819fe50e9773524913",
+      "sourceScreen": "projects/11399070392715853322/screens/47c590fd8b824f819fe50e9773524913",
+      "width": 2560,
+      "height": 5520,
+      "title": "Tejas Enterprise Landing Page"
+    }
+  },
+  "metadata": {
+    "userRole": "OWNER"
+  }
+}

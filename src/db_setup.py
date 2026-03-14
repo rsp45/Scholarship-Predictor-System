@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS applicants (
     university_test_score   REAL,
     twelfth_percentage      REAL,
     extracurricular_score   INTEGER,
+    tenth_percentage        REAL,
+    gender                  TEXT,
+    parent_occupation       TEXT,
+    gap_year                INTEGER,
+    disability_status       TEXT,
+    college_branch          TEXT,
     predicted_priority_score REAL,
     created_at              TEXT    DEFAULT (datetime('now'))
 );

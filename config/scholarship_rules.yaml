@@ -1,0 +1,29 @@
+# ============================================================================
+# SCHOLARSHIP RULES ENGINE
+# ============================================================================
+# Central configuration for the Committee Simulator in generator.py.
+# All thresholds, bonuses, penalties, and weights are defined here —
+# no magic numbers should exist in application code.
+# ============================================================================
+
+# ── Fuzzy Rule Thresholds & Bonuses ──────────────────────────────────────────
+
+income_threshold: 150000        # Family income below this triggers bonus
+income_bonus: 10                # Bonus points for low-income applicants
+
+reserved_categories:            # Caste categories eligible for reservation bonus
+  - SC
+  - ST
+reservation_bonus: 5            # Bonus points for reserved-category applicants
+
+extracurricular_threshold: 8    # Score above this triggers bonus
+extracurricular_bonus: 5        # Bonus points for high extracurricular achievers
+
+pwd_bonus: 10                   # Bonus points for PwD (Disability_Status = Yes)
+girl_child_bonus: 5             # Bonus points for Female applicants
+gap_year_penalty: -5            # Penalty for applicants with Gap_Year > 0
+
+# ── Base Score Weights ───────────────────────────────────────────────────────
+
+income_weight: 0.40             # Weight for normalised income component
+merit_weight: 0.40              # Weight for normalised merit component

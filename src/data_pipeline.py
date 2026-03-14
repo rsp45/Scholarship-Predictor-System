@@ -12,6 +12,7 @@ Usage:
 """
 
 import logging
+import sqlite3
 from pathlib import Path
 
 import joblib
@@ -27,7 +28,7 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 # Resolve paths relative to the repo root (parent of src/)
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_PATH = BASE_DIR / "data_generation" / "raw_data.csv"
+DB_PATH = BASE_DIR / "data" / "scholarship.db"
 ARTIFACTS_DIR = BASE_DIR / "models"
 
 # Feature definitions — single source of truth
@@ -42,6 +43,12 @@ FEATURES_TO_USE = [
     "University_Test_Score",
     "12th_Percentage",
     "Extracurricular_Score",
+    "10th_Percentage",
+    "Gender",
+    "Parent_Occupation",
+    "Gap_Year",
+    "Disability_Status",
+    "College_Branch",
 ]
 
 NUMERICAL_FEATURES = [
@@ -51,9 +58,17 @@ NUMERICAL_FEATURES = [
     "University_Test_Score",
     "12th_Percentage",
     "Extracurricular_Score",
+    "10th_Percentage",
+    "Gap_Year",
 ]
 
-CATEGORICAL_FEATURES = ["Caste_Category"]
+CATEGORICAL_FEATURES = [
+    "Caste_Category",
+    "Gender",
+    "Parent_Occupation",
+    "Disability_Status",
+    "College_Branch",
+]
 
 # Logging
 logging.basicConfig(
@@ -68,10 +83,39 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def load_data(path: Path = DATA_PATH) -> pd.DataFrame:
-    """Load raw CSV data and validate that required columns are present."""
-    logger.info("Loading data from %s", path)
-    df = pd.read_csv(path)
+# Column mapping: DB uses lowercase names → pipeline expects mixed-case
+DB_COL_MAP = {
+    "application_id": "Application_ID",
+    "applicant_name": "Applicant_Name",
+    "family_income": "Family_Income",
+    "caste_category": "Caste_Category",
+    "domicile_maharashtra": "Domicile_Maharashtra",
+    "mh_cet_percentile": "Mh_CET_Percentile",
+    "jee_percentile": "JEE_Percentile",
+    "university_test_score": "University_Test_Score",
+    "twelfth_percentage": "12th_Percentage",
+    "extracurricular_score": "Extracurricular_Score",
+    "tenth_percentage": "10th_Percentage",
+    "gender": "Gender",
+    "parent_occupation": "Parent_Occupation",
+    "gap_year": "Gap_Year",
+    "disability_status": "Disability_Status",
+    "college_branch": "College_Branch",
+    "predicted_priority_score": "Scholarship_Priority_Score",
+}
+
+
+def load_data(db_path: Path = DB_PATH) -> pd.DataFrame:
+    """Load applicant data from SQLite and validate required columns."""
+    logger.info("Loading data from %s", db_path)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        df = pd.read_sql_query("SELECT * FROM applicants", conn)
+    finally:
+        conn.close()
+
+    # Rename DB columns to the mixed-case names the pipeline expects
+    df.rename(columns=DB_COL_MAP, inplace=True)
     logger.info("  Shape: %s | Columns: %s", df.shape, list(df.columns))
 
     # Validate expected columns
@@ -114,7 +158,7 @@ def build_preprocessor() -> ColumnTransformer:
     """
     Build a sklearn ColumnTransformer:
       - StandardScaler  → numerical features
-      - OneHotEncoder   → Caste_Category
+      - OneHotEncoder   → categorical features
       - passthrough     → Domicile_Maharashtra (already binary 0/1)
     """
     preprocessor = ColumnTransformer(
@@ -155,9 +199,10 @@ def save_artifacts(
     X_test_processed: np.ndarray,
     y_train: pd.Series,
     y_test: pd.Series,
+    X_test_raw: pd.DataFrame,
     artifacts_dir: Path = ARTIFACTS_DIR,
 ) -> None:
-    """Persist the preprocessor and processed data arrays to disk."""
+    """Persist the preprocessor, processed arrays, and raw X_test to disk."""
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     # Preprocessor object (needed by the Streamlit app at inference time)
@@ -165,7 +210,7 @@ def save_artifacts(
     joblib.dump(preprocessor, preprocessor_path)
     logger.info("Saved preprocessor → %s", preprocessor_path)
 
-    # Processed numpy arrays (consumed by the training notebook / script)
+    # Processed numpy arrays (consumed by the training script)
     for name, arr in [
         ("X_train", X_train_processed),
         ("X_test", X_test_processed),
@@ -175,6 +220,11 @@ def save_artifacts(
         out = artifacts_dir / f"{name}.npy"
         np.save(out, arr)
         logger.info("Saved %s → %s  (shape %s)", name, out, arr.shape)
+
+    # Raw X_test DataFrame (needed by model_trainer.py for fairness audit)
+    raw_test_path = artifacts_dir / "X_test_raw.csv"
+    X_test_raw.to_csv(raw_test_path, index=False)
+    logger.info("Saved raw X_test → %s  (shape %s)", raw_test_path, X_test_raw.shape)
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +243,7 @@ def run_pipeline() -> None:
     X_train, X_test, y_train, y_test = split_data(X, y)
     preprocessor = build_preprocessor()
     X_train_proc, X_test_proc = fit_and_transform(preprocessor, X_train, X_test)
-    save_artifacts(preprocessor, X_train_proc, X_test_proc, y_train, y_test)
+    save_artifacts(preprocessor, X_train_proc, X_test_proc, y_train, y_test, X_test)
 
     logger.info("=" * 60)
     logger.info("DATA PREPROCESSING COMPLETE")
