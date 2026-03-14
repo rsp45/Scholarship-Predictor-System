@@ -1,7 +1,8 @@
 # Project Tejas — Intelligent Scholarship Allocator
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-red)
+![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-blue)
+![Backend](https://img.shields.io/badge/Backend-FastAPI-fastapi)
 ![Scikit-Learn](https://img.shields.io/badge/ML-XGBoost%20%7C%20RandomForest-orange)
 ![SHAP](https://img.shields.io/badge/Explainability-SHAP-blueviolet)
 ![SQLite](https://img.shields.io/badge/Database-SQLite-lightgrey)
@@ -229,13 +230,23 @@ Train RandomForest + XGBoost, auto-select the best model, and generate the SHAP 
 python -m src.model_trainer
 ```
 
-### 6. Launch Dashboard
+### 6. Launch Backend Server (FastAPI)
 
 ```bash
-python -m streamlit run app/app.py
+cd backend
+python -m uvicorn main:app --reload --port 5000
 ```
 
-*The app will open in your browser at `http://localhost:8501`.*
+### 7. Launch Frontend (React / Vite)
+
+In a new terminal:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+*The Tejas dashboard will open in your browser at `http://localhost:5173`.*
 
 ---
 
@@ -265,9 +276,9 @@ The winning model is combined with the preprocessor into a single **Scikit-Learn
 | Phase 3 Retraining | Mar 1, 2026 (Sun) | First Automated Pipeline Test: Train model on newly seeded database records. | ⚙️ Automated Retraining |
 | **Phase 4:** Updation Pipeline Automation | Mar 2 – Mar 7, 2026 | Script the `data_pipeline.py` extraction process. Automate pulling fresh manual entries from SQLite to merge with `raw_data.csv`. Automate preprocessing. | - |
 | Phase 4 Retraining | Mar 8, 2026 (Sun) | Weekly Model Retraining triggered via automated cron job/scheduler. | ⚙️ Automated Retraining |
-| **Phase 5:** Streamlit Dashboard Integration | Mar 9 – Mar 14, 2026 | Build UI forms for manual applicant entry to feed directly into SQLite. Implement dynamic filtering, search, and priority score visualizers. | - |
+| **Phase 5:** React Dashboard Integration | Mar 9 – Mar 14, 2026 | Build UI forms for manual applicant entry via FastAPI backend. Implement dynamic ML scoring visualizers in React. | - |
 | Phase 5 Retraining | Mar 15, 2026 (Sun) | Weekly Model Retraining on dataset expanded by manual UI entries. | ⚙️ Automated Retraining |
-| **Phase 6:** Optimization & Testing | Mar 16 – Mar 21, 2026 | End-to-end testing of the ingestion-to-prediction loop. Optimize SQL query speeds for dashboard loading. Final UI/UX bug fixes. | - |
+| **Phase 6:** Optimization & Testing | Mar 16 – Mar 21, 2026 | End-to-end testing of the ingestion-to-prediction loop (React → FastAPI → ML Pipeline). Final UI/UX bug fixes. | - |
 | Final Retraining | Mar 22, 2026 (Sun) | Final Pre-Submission Model Retraining for maximum accuracy. | ⚙️ Automated Retraining |
 | **Phase 7:** Submission | Mar 23 – Mar 25, 2026 | Compile the final project report, detail the pipeline architecture, and prepare for the final Viva/Presentation. | 🏁 Complete |
 
