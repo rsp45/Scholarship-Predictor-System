@@ -22,7 +22,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "models", "scholarship_model.pkl")
 
 app = FastAPI(
-    title="Tejas — Intelligent Scholarship Allocator API",
+    title="Tejas - Intelligent Scholarship Allocator API",
     description="ML-powered priority scoring for fair scholarship allocation.",
     version="1.0.0",
 )
@@ -53,7 +53,7 @@ def load_model():
     if not os.path.exists(MODEL_PATH):
         raise RuntimeError(f"Model file not found at {MODEL_PATH}")
     pipeline = joblib.load(MODEL_PATH)
-    print(f"   ✅ Loaded pipeline from {MODEL_PATH}")
+    print(f"   [OK] Loaded pipeline from {MODEL_PATH}")
     print(f"   Pipeline steps: {list(pipeline.named_steps.keys())}")
 
 
