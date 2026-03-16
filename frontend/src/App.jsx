@@ -8,6 +8,10 @@ import ProjectTimeline from './pages/ProjectTimeline'
 import ComingSoon from './pages/ComingSoon'
 
 import Suggestions from './pages/Suggestions'
+import FairnessAudit from './pages/FairnessAudit'
+import MLOps from './pages/MLOps'
+import SecurityAudit from './pages/SecurityAudit'
+import ApplicantDatabase from './pages/ApplicantDatabase'
 
 function App() {
   return (
@@ -24,11 +28,11 @@ function App() {
           <Route path="/timeline" element={<ProjectTimeline />} />
           <Route path="/suggestions" element={<Suggestions />} />
 
-          {/* Coming Soon pages */}
-          <Route path="/applicant-database" element={<ComingSoon />} />
-          <Route path="/fairness-audit" element={<ComingSoon />} />
-          <Route path="/mlops" element={<ComingSoon />} />
-          <Route path="/security" element={<ComingSoon />} />
+          {/* Newly Created Pages */}
+          <Route path="/applicant-database" element={<ApplicantDatabase />} />
+          <Route path="/fairness-audit" element={<FairnessAudit />} />
+          <Route path="/mlops" element={<MLOps />} />
+          <Route path="/security" element={<SecurityAudit />} />
         </Route>
       </Routes>
     </BrowserRouter>
