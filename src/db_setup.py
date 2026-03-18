@@ -1,14 +1,13 @@
 """
 db_setup.py
 ===========
-Initialise a local SQLite database for the Scholarship Predictor System.
+Initialise the local SQLite database for the Scholarship Predictor System.
 
-Creates a ``data/scholarship.db`` file with an ``applicants`` table designed
-to securely store applicant details and their predicted Priority Scores.
-
-Usage:
-    python -m src.db_setup       # from project root
-    python src/db_setup.py       # also works standalone
+Creates ``data/scholarship.db`` with:
+- ``applicants``: combined training / historical scoring dataset
+- ``generated_applications``: synthetic applications produced by the generator
+- ``decision_center_applications``: live submissions scored through the UI
+- ``override_audit``: manual override trail with reason and acting user
 """
 
 import logging
@@ -31,12 +30,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# SQL Definitions
+# Shared Column SQL
 # ---------------------------------------------------------------------------
 
-CREATE_APPLICANTS_TABLE = """
-CREATE TABLE IF NOT EXISTS applicants (
-    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+APPLICATION_COLUMNS_SQL = """
     application_id          TEXT    UNIQUE NOT NULL,
     applicant_name          TEXT    NOT NULL,
     family_income           REAL    NOT NULL,
@@ -52,24 +49,66 @@ CREATE TABLE IF NOT EXISTS applicants (
     parent_occupation       TEXT,
     gap_year                INTEGER,
     disability_status       TEXT,
-    college_branch          TEXT,
+    college_branch          TEXT
+"""
+
+# ---------------------------------------------------------------------------
+# SQL Definitions
+# ---------------------------------------------------------------------------
+
+CREATE_APPLICANTS_TABLE = f"""
+CREATE TABLE IF NOT EXISTS applicants (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    {APPLICATION_COLUMNS_SQL},
     predicted_priority_score REAL,
     created_at              TEXT    DEFAULT (datetime('now'))
 );
 """
 
+CREATE_GENERATED_APPLICATIONS_TABLE = f"""
+CREATE TABLE IF NOT EXISTS generated_applications (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    {APPLICATION_COLUMNS_SQL},
+    predicted_priority_score REAL,
+    generated_batch         TEXT    DEFAULT 'default',
+    created_at              TEXT    DEFAULT (datetime('now'))
+);
+"""
+
+CREATE_DECISION_CENTER_APPLICATIONS_TABLE = f"""
+CREATE TABLE IF NOT EXISTS decision_center_applications (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    {APPLICATION_COLUMNS_SQL},
+    ml_score                REAL,
+    final_score             REAL    NOT NULL,
+    decision_tier           TEXT    NOT NULL,
+    is_overridden           INTEGER NOT NULL CHECK (is_overridden IN (0, 1)) DEFAULT 0,
+    submitted_by            TEXT    DEFAULT 'Dr. Admin',
+    created_at              TEXT    DEFAULT (datetime('now'))
+);
+"""
+
+CREATE_OVERRIDE_AUDIT_TABLE = """
+CREATE TABLE IF NOT EXISTS override_audit (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_application_id TEXT    NOT NULL,
+    applicant_name          TEXT    NOT NULL,
+    ml_score                REAL,
+    override_score          REAL    NOT NULL,
+    final_tier              TEXT    NOT NULL,
+    override_reason         TEXT,
+    override_user           TEXT    NOT NULL,
+    created_at              TEXT    DEFAULT (datetime('now'))
+);
+"""
+
+
 # ---------------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------------
 
-
 def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
-    """
-    Open (or create) a SQLite database and return a connection.
-
-    Enables WAL journal mode for safer concurrent reads and better
-    write performance.
-    """
+    """Open (or create) a SQLite database and return a connection."""
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
@@ -78,19 +117,17 @@ def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
 
 
 def create_tables(conn: sqlite3.Connection) -> None:
-    """Create the applicants table (idempotent — uses IF NOT EXISTS)."""
+    """Create all database tables used by the product."""
     conn.execute(CREATE_APPLICANTS_TABLE)
+    conn.execute(CREATE_GENERATED_APPLICATIONS_TABLE)
+    conn.execute(CREATE_DECISION_CENTER_APPLICATIONS_TABLE)
+    conn.execute(CREATE_OVERRIDE_AUDIT_TABLE)
     conn.commit()
-    logger.info("Table 'applicants' is ready")
+    logger.info("Tables are ready: applicants, generated_applications, decision_center_applications, override_audit")
 
 
 def initialize_database(db_path: Path = DB_PATH) -> None:
-    """
-    End-to-end database initialisation:
-      1. Ensure the data/ directory exists.
-      2. Connect to (or create) the SQLite database.
-      3. Create the applicants table.
-    """
+    """Ensure the database file exists and all required tables are present."""
     logger.info("=" * 60)
     logger.info("INITIALISING SCHOLARSHIP DATABASE")
     logger.info("=" * 60)
@@ -105,7 +142,7 @@ def initialize_database(db_path: Path = DB_PATH) -> None:
         logger.info("Database connection closed")
 
     logger.info("=" * 60)
-    logger.info("DATABASE SETUP COMPLETE  →  %s", db_path)
+    logger.info("DATABASE SETUP COMPLETE  ->  %s", db_path)
     logger.info("=" * 60)
 
 

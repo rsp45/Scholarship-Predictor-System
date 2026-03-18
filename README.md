@@ -203,7 +203,7 @@ cd Scholarship-Predictor-System
 ### 2. Install Dependencies
 
 ```bash
-pip install -r Documentation/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### 3. Generate Data & Seed Database
@@ -247,6 +247,8 @@ npm run dev
 ```
 
 *The Tejas dashboard will open in your browser at `http://localhost:5173`.*
+
+On this Windows setup, `npm run dev` now starts the backend with the local Python 3.12 interpreter that has FastAPI and Uvicorn installed, so the frontend proxy at `/api` can reach `http://localhost:5000`.
 
 ---
 

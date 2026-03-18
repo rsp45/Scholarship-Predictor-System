@@ -19,6 +19,7 @@ import {
   Legend,
   Tooltip,
 } from 'recharts'
+import { apiFetch } from '../lib/api'
 
 /* ───────── Reusable Input Components ───────── */
 
@@ -39,9 +40,8 @@ function NumberInput({ label, placeholder, prefix, min = 0, max = 100, value, on
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange?.(e.target.value)}
-          className={`w-full bg-tejas-bg border border-tejas-border rounded-lg py-2.5 text-sm text-tejas-text placeholder-tejas-muted-dark focus:outline-none focus:border-tejas-gold/50 focus:ring-1 focus:ring-tejas-gold/20 transition-all ${
-            prefix ? 'pl-7 pr-3' : 'px-3'
-          }`}
+          className={`w-full bg-tejas-bg border border-tejas-border rounded-lg py-2.5 text-sm text-tejas-text placeholder-tejas-muted-dark focus:outline-none focus:border-tejas-gold/50 focus:ring-1 focus:ring-tejas-gold/20 transition-all ${prefix ? 'pl-7 pr-3' : 'px-3'
+            }`}
         />
       </div>
     </div>
@@ -63,8 +63,11 @@ function SelectInput({ label, options, value, onChange }) {
         }}
       >
         {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
+          <option
+            key={typeof opt === 'string' ? opt : opt.value}
+            value={typeof opt === 'string' ? opt : opt.value}
+          >
+            {typeof opt === 'string' ? opt : opt.label}
           </option>
         ))}
       </select>
@@ -134,7 +137,7 @@ export default function DecisionCenter() {
     gapYear: '0',
     caste: 'OBC',
     gender: 'Male',
-    parentOccupation: 'Salaried',
+    parentOccupation: 'Private Sector',
     pwd: 'No',
     collegeBranch: 'Engineering',
     domicile: '1',
@@ -149,6 +152,7 @@ export default function DecisionCenter() {
     setResult(null)
 
     const payload = {
+      applicant_name: form.applicantName.trim() || null,
       family_income: parseFloat(form.income) || 0,
       tenth_percentage: parseFloat(form.tenth) || 0,
       twelfth_percentage: parseFloat(form.twelfth) || 0,
@@ -166,7 +170,7 @@ export default function DecisionCenter() {
     }
 
     try {
-      const res = await fetch('/api/predict', {
+      const res = await apiFetch('/api/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -205,6 +209,7 @@ export default function DecisionCenter() {
     setError(null)
 
     const payload = {
+      applicant_name: form.applicantName.trim() || null,
       family_income: parseFloat(form.income) || 0,
       tenth_percentage: parseFloat(form.tenth) || 0,
       twelfth_percentage: parseFloat(form.twelfth) || 0,
@@ -219,12 +224,13 @@ export default function DecisionCenter() {
       disability_status: form.pwd,
       college_branch: form.collegeBranch,
       domicile_maharashtra: parseInt(form.domicile),
+      override_user: 'Dr. Admin',
       override_score: parseFloat(overrideScore),
       override_reason: overrideReason || null,
     }
 
     try {
-      const res = await fetch('/api/predict', {
+      const res = await apiFetch('/api/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -354,7 +360,7 @@ export default function DecisionCenter() {
             />
             <SelectInput
               label="Parent Occupation"
-              options={['Salaried', 'Self-Employed', 'Unemployed', 'Farmer']}
+              options={['Private Sector', 'Government', 'APL', 'BPL']}
               value={form.parentOccupation}
               onChange={updateForm('parentOccupation')}
             />
@@ -372,7 +378,10 @@ export default function DecisionCenter() {
             />
             <SelectInput
               label="Domicile Maharashtra"
-              options={[{ v: '1', l: 'Yes' }, { v: '0', l: 'No' }].map(o => o.v)}
+              options={[
+                { value: '1', label: 'Yes' },
+                { value: '0', label: 'No' },
+              ]}
               value={form.domicile}
               onChange={updateForm('domicile')}
             />

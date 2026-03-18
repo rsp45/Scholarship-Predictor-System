@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev:frontend": "vite",
-    "dev:backend": "python -m uvicorn main:app --port 5000 --reload --app-dir ../backend",
+    "dev:backend": "\"C:/Users/rudra/AppData/Local/Programs/Python/Python312/python.exe\" -m uvicorn main:app --port 5000 --reload --app-dir ../backend",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "build": "vite build",
     "preview": "vite preview"
