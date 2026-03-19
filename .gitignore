@@ -17,10 +17,31 @@ venv/
 *.db-wal
 *.ipynb
 *.pdf
+*.jpg
+*.jpeg
+*.png
 
-# --- 4. OS Junk ---
+# --- 4. Package Lock Files ---
+# Never commit lock files - use package.json instead
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+*-lock.json
+
+# --- 5. Model & Data Files ---
+models/
+data/
+*.h5
+*.joblib
+*.tar
+*.tar.gz
+*.zip
+
+# --- 6. OS Junk ---
 .DS_Store
-# --- 5. JS/Node Build Junk ---
+Thumbs.db
+
+# --- 7. JS/Node Build Junk ---
 node_modules/
 dist/
 build/
