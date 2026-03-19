@@ -1,0 +1,9 @@
+{
+  "version": "20260319",
+  "model_name": "RandomForestRegressor",
+  "r2_score": 0.624389161014899,
+  "mae": 4.3808192952205465,
+  "training_date": "2026-03-19T15:46:44.078855",
+  "training_samples": 1625,
+  "random_state": 42
+}

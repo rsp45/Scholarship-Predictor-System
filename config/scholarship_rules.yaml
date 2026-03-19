@@ -1,0 +1,241 @@
+# ============================================================================
+# TEJAS SCHOLARSHIP RULES ENGINE - v2026.1
+# ============================================================================
+# Central configuration for the Intelligent Scholarship Allocator.
+# All thresholds, bonuses, penalties, and weights are defined here —
+# no magic numbers should exist in application code.
+# 
+# IMPORTANT: This file is loaded at backend startup. Changes require server restart.
+# For runtime adjustments, use Command Center /api/simulate endpoint.
+# ============================================================================
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 1: HARD ELIGIBILITY FILTERS
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Universal (All Tracks) ──────────────────────────────────────────────────
+academic_floor_twelfth_percent: 60  # Min 12th percentage for all applicants
+
+# ── Need-Based Track Specific ───────────────────────────────────────────────
+need_based_income_cap: 2500000      # Family income must be <= ₹25,00,000
+need_based_academic_floor: 60       # 12th % >= 60%
+
+# ── Merit-Based Track Specific ──────────────────────────────────────────────
+merit_based_academic_floor: 70      # 12th % >= 70% (higher bar)
+merit_based_entrance_exam_min: 50   # JEE >= 50 OR NEET >= 50 OR MH-CET >= 60
+merit_based_mhcet_threshold: 60     # MH-CET specific threshold (higher than JEE/NEET)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 2: MERIT SCORE CALCULATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Raw merit average (of 4 exams)
+merit_exams:
+  - twelfth_percentage
+  - mh_cet_percentile
+  - jee_percentile
+  - university_test_score
+
+# Sigmoid normalization parameters
+merit_sigmoid_k: 0.1                # Steepness (how sharp the curve)
+merit_sigmoid_midpoint: 50          # Raw merit % = midpoint → 50 transformed points
+
+# Competitive exam integration
+allow_competitive_exam: true        # Enable JEE/NEET/Other exam inclusion
+allow_fifth_exam_average: true      # If competitive exam taken, use 5-exam avg instead of 4
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 3: INCOME SCORE CALCULATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Logarithmic decay function parameters
+income_reference_max: 2000000       # ₹20 lakhs (reference ceiling for log function)
+income_reference_min: 1             # Floor for log safety
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 4: POLICY BONUS CALCULATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Caste Category Bonuses (Affirmative Action) ────────────────────────────
+caste_category_bonus:
+  General: 0                        # Baseline
+  OBC: 5                            # Other Backward Classes
+  SC: 10                            # Scheduled Caste
+  ST: 15                            # Scheduled Tribe
+
+# ── Domicile Bonus ──────────────────────────────────────────────────────────
+domicile_maharashtra_bonus: 5       # In-state priority
+domicile_other_bonus: 0             # Out-of-state; no bonus
+
+# ── Gender Bonus (Diversity & Inclusion) ────────────────────────────────────
+gender_bonus:
+  Male: 0                           # Baseline
+  Female: 5                         # Promote gender diversity
+  Other: 5                          # Non-binary inclusivity
+
+# ── Disability (PwD) Bonus ······················································
+pwd_bonus: 10                       # Person with Disability
+
+# ── Extracurricular Score Bonus (Well-roundedness) ····························
+extracurricular_bonus:
+  0-4: 0                            # Minimal activity
+  5-6: 2                            # Some involvement
+  7-8: 5                            # Strong involvement
+  9-10: 10                          # Exceptional (sports/arts leadership)
+
+# ── Policy Score Cap ········································································
+policy_score_max: 20                # Maximum bonus points (prevents stacking/gaming)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 5: WEIGHT CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Default weights (can be overridden via Command Center)
+default_weights:
+  merit: 0.4                        # Academic excellence weight
+  income: 0.4                       # Financial need weight
+  policy: 0.2                       # Social policy/diversity weight
+  # Sum must equal 1.0
+
+# Track-specific weight customization (optional; for future use)
+track_weights:
+  Need_Based:
+    merit: 0.3                      # Can decrease merit focus if needed
+    income: 0.7                     # Increase income focus for poverty-targeted scholarships
+    policy: 0.0                     # Can exclude policy bonuses for pure need
+  Merit_Based:
+    merit: 0.7                      # Increase merit focus
+    income: 0.2                     # Downplay income
+    policy: 0.1                     # Minimal policy weighting
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 6: TIER BOUNDARIES
+# ═══════════════════════════════════════════════════════════════════════════
+
+tier_boundaries:
+  tier_1_min: 80                    # 80-100: Full Scholarship (100% waiver)
+  tier_2_min: 50                    # 50-79: Partial Aid (60% waiver)
+  tier_2_max: 79
+  tier_3_min: 0                     # 0-49: Waitlist/Appeal eligible
+  tier_3_max: 49
+
+tier_awards:
+  tier_1_percentage: 100            # 100% tuition waiver
+  tier_2_percentage: 60             # 60% partial aid
+  tier_3_percentage: 0              # No aid (may appeal)
+  tier_4_percentage: 0              # Ineligible (hard rules violated)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 7: FAIRNESS & AUDIT SETTINGS
+# ═══════════════════════════════════════════════════════════════════════════
+
+fairness_audit:
+  target_selection_rate: 30         # Target: >= 30% of eligible applicants get aid (Tier 1/2)
+  alert_selection_rate: 30          # Alert if < 30%
+  
+  max_gender_disparity: 15          # Alert if any gender > 15 percentile points different
+  max_caste_disparity: 20           # Alert if caste rates vary > 20 points
+  
+  sc_st_target_multiplier: 1.5      # SC/ST selection rate should be >= 1.5x General rate (historical equity)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 8: INPUT VALIDATION CONSTRAINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+input_validation:
+  
+  # Percentage fields (0-100)
+  percentage_fields:
+    tenth_percentage:
+      min: 0
+      max: 100
+      step: 0.1
+    twelfth_percentage:
+      min: 0
+      max: 100
+      step: 0.1
+    mh_cet_percentile:
+      min: 0
+      max: 100
+      step: 0.01
+    jee_percentile:
+      min: 0
+      max: 100
+      step: 0.01
+    university_test_score:
+      min: 0
+      max: 100
+      step: 1
+    competitive_exam_score:
+      min: 0
+      max: 100
+      step: 0.01
+    extracurricular_score:
+      min: 0
+      max: 10
+      step: 1
+
+  # Financial fields
+  income_field:
+    family_income:
+      min: 0
+      max: 1000000000              # 1 billion INR (no real upper bound)
+      step: 1000
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 9: BUDGET ALLOCATION MODES
+# ═══════════════════════════════════════════════════════════════════════════
+
+allocation_modes:
+  # Mode 1: Strict budget constraint (allocate top students until budget exhausted)
+  strict_budget:
+    enabled: true
+    description: "Allocate scholarships to top-scoring students first until budget limit reached"
+    tier_1_priority: true           # Always fund Tier 1 first
+    tier_2_priority: secondary      # Fund Tier 2 after Tier 1 exhausts budget
+  
+  # Mode 2: Relative ranking (ignore budget; top 10% → Tier 1, etc.)
+  relative_ranking:
+    enabled: true
+    tier_1_percentile_cap: 10       # Top 10% → Tier 1
+    tier_2_percentile_cap: 30       # Next 20% (10-30%) → Tier 2
+    description: "Ignore budget; top percentage students get Tier 1 regardless of cost"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SECTION 10: ADMINISTRATIVE SETTINGS
+# ═══════════════════════════════════════════════════════════════════════════
+
+admin_settings:
+  allow_overrides: true             # Admin can override ML decision
+  override_max_score_bump: 30       # Max +30 point increase via override
+  require_override_reason: true     # Override reason is mandatory
+  audit_log_overrides: true         # Log all overrides for compliance
+  
+  appeals_enabled: true             # Tier 3/4 applicants can appeal
+  appeal_evidence_required: true    # Must provide supporting documents
+  appeal_review_sla_days: 7         # Target: 7-day appeal review turnaround
+
+# ═══════════════════════════════════════════════════════════════════════════
+# VERSION & CHANGELOG
+# ═══════════════════════════════════════════════════════════════════════════
+
+metadata:
+  version: "2026.1"
+  last_updated: "2026-03-19"
+  policy_release_date: "2026-02-01"
+  
+  changelog:
+    v2026_1:
+      - "Added track-aware eligibility filters (Need-Based income cap, Merit-Based 70% floor)"
+      - "Integrated competitive exam (JEE/NEET/Other) into merit scoring (5-exam average)"
+      - "Input validation with strict bounds (browser + backend Pydantic)"
+      - "Fairness audit with selection rate monitoring by gender & caste"
+      - "Budget allocation modes: Strict vs Relative Ranking"
+      - "Policy bonuses capped at 20 points max"
+      - "Admin override with audit trail logging"
+    v2_0:
+      - "Changed from 3-tier to 4-tier system (added Tier 4: Ineligible)"
+      - "Added fairness audit and selection rate tracking"
+    v1_0:
+      - "Initial release: 3-tier, single-track, basic scoring"
+
