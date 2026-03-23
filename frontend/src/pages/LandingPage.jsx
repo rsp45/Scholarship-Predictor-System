@@ -257,7 +257,7 @@ export default function LandingPage() {
               How Tejas Works
             </h2>
             <p className="text-tejas-muted max-w-lg mx-auto text-sm">
-              From application intake to fund disbursement — a fully automated,
+              From application intake to fund disbursement - a fully automated,
               ML-driven pipeline.
             </p>
           </div>

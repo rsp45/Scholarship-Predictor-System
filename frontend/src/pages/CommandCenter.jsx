@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiFetch } from '../lib/api';
 import { Play, AlertTriangle, CheckCircle, Users, IndianRupee, PieChart, Shield } from 'lucide-react';
 
 const CommandCenter = () => {
@@ -8,6 +9,7 @@ const CommandCenter = () => {
   const [incomeWeight, setIncomeWeight] = useState(0.4);
   const [policyWeight, setPolicyWeight] = useState(0.2);
   const [useBudget, setUseBudget] = useState(true);
+  const [allocationEngine, setAllocationEngine] = useState('greedy');
   const [simulationData, setSimulationData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -27,7 +29,7 @@ const CommandCenter = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:5000/api/simulate', {
+      const response = await apiFetch('/api/simulate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -38,6 +40,7 @@ const CommandCenter = () => {
           income_weight: incomeWeight,
           policy_weight: policyWeight,
           use_budget: useBudget,
+          allocation_engine: allocationEngine,
         }),
       });
 
@@ -186,6 +189,50 @@ const CommandCenter = () => {
               </button>
             </div>
           </div>
+
+          {/* Allocation Engine Toggle */}
+          {useBudget && (
+            <div className="mb-6 p-4 bg-slate-950 border border-slate-700 rounded-lg">
+              <p className="text-sm font-medium text-slate-300 mb-3">Allocation Engine</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setAllocationEngine('greedy')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    allocationEngine === 'greedy'
+                      ? 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-500/20'
+                      : 'bg-slate-900 border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  <p className={`text-sm font-semibold ${allocationEngine === 'greedy' ? 'text-blue-400' : 'text-slate-300'}`}>
+                    Greedy (Default)
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Top-down fill until budget hits zero
+                  </p>
+                </button>
+                <button
+                  onClick={() => setAllocationEngine('knapsack')}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    allocationEngine === 'knapsack'
+                      ? 'bg-amber-500/10 border-amber-500/50 ring-1 ring-amber-500/20'
+                      : 'bg-slate-900 border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  <p className={`text-sm font-semibold ${allocationEngine === 'knapsack' ? 'text-amber-400' : 'text-slate-300'}`}>
+                    Knapsack (OR)
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Maximize total cohort impact score
+                  </p>
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-600 mt-2">
+                {allocationEngine === 'knapsack'
+                  ? '⚡ Optimization: Maximizes SUM(Score × Funding) under budget constraint'
+                  : '📋 Standard: Sorts by score, allocates top-down until budget = 0'}
+              </p>
+            </div>
+          )}
           {!isWeightValid && (
             <div className="mt-4 flex items-center gap-2 bg-amber-950/50 border border-amber-800 rounded-lg p-3">
               <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0" />
