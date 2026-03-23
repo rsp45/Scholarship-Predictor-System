@@ -3,10 +3,12 @@
 # Automated Retraining Pipeline for Tejas Scholarship Allocator
 # ===========================================================================
 # This script can be called via CLI or scheduled task to automatically:
-# 1. Extract all records from the SQLite database (applicants table)
-# 2. Run the data preprocessing pipeline
-# 3. Retrain the ML model (RandomForest + XGBoost)
-# 4. Save the new model with a version number based on current date
+# 1. Extract all records from the SQLite database (applicants + decision_center)
+# 2. Apply Behavioral Cloning: weight records where admins overrode scores 3x
+# 3. Run the data preprocessing pipeline
+# 4. Retrain the ML model (RandomForest + XGBoost)
+# 5. Train K-Means clustering for Applicant Persona assignment
+# 6. Save all model artifacts with date-based versioning
 # ===========================================================================
 
 import argparse
@@ -22,8 +24,9 @@ from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
+from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score, mean_absolute_error
+from sklearn.metrics import r2_score, mean_absolute_error, silhouette_score
 from sklearn.pipeline import Pipeline
 from xgboost import XGBRegressor
 from fairlearn.metrics import MetricFrame
@@ -92,14 +95,31 @@ TARGET_COLUMN = "predicted_priority_score"
 
 SENSITIVE_FEATURES = ["Caste_Category", "Gender"]
 
+# Behavioral Cloning: weight multiplier for admin-overridden records
+OVERRIDE_WEIGHT_MULTIPLIER = 3
+
+# K-Means Clustering Configuration
+N_CLUSTERS = 4
+CLUSTER_PERSONA_MAP = {
+    0: "High Need, Strong Academics",
+    1: "Merit Elite",
+    2: "Balanced Profile",
+    3: "Borderline Candidate",
+}
+
 
 # ---------------------------------------------------------------------------
-# Database Extraction
+# Database Extraction (Behavioral Cloning)
 # ---------------------------------------------------------------------------
 
 def extract_data_from_database(min_records: int = 100) -> pd.DataFrame:
     """
-    Extract all applicant records from the SQLite database.
+    Extract applicant records from the SQLite database using Behavioral Cloning.
+    
+    This function implements a key ML strategy: it pulls from BOTH the base
+    applicants table AND the decision_center_applications table. Records where
+    an admin manually overrode the ML score are duplicated (weighted 3x) so the
+    model learns to replicate human expert judgment over time.
     
     Args:
         min_records: Minimum number of records required for training
@@ -111,10 +131,11 @@ def extract_data_from_database(min_records: int = 100) -> pd.DataFrame:
         ValueError: If insufficient records are found
     """
     logger.info("=" * 60)
-    logger.info("STEP 1: Extracting Data from Database")
+    logger.info("STEP 1: Extracting Data from Database (Behavioral Cloning)")
     logger.info("=" * 60)
     
-    query = """
+    # Base query: all scored applicants
+    base_query = """
         SELECT
             application_id,
             applicant_name,
@@ -132,17 +153,60 @@ def extract_data_from_database(min_records: int = 100) -> pd.DataFrame:
             gap_year AS Gap_Year,
             disability_status AS Disability_Status,
             college_branch AS College_Branch,
-            predicted_priority_score
+            predicted_priority_score,
+            0 AS is_override_record
         FROM applicants
         WHERE predicted_priority_score IS NOT NULL
     """
     
+    # Override query: decision center records where admin overrode the score
+    # These use the admin's final_score as the target (Behavioral Cloning)
+    override_query = """
+        SELECT
+            application_id,
+            applicant_name,
+            family_income AS Family_Income,
+            caste_category AS Caste_Category,
+            domicile_maharashtra AS Domicile_Maharashtra,
+            mh_cet_percentile AS Mh_CET_Percentile,
+            jee_percentile AS JEE_Percentile,
+            university_test_score AS University_Test_Score,
+            twelfth_percentage AS "12th_Percentage",
+            extracurricular_score AS Extracurricular_Score,
+            tenth_percentage AS "10th_Percentage",
+            gender AS Gender,
+            parent_occupation AS Parent_Occupation,
+            gap_year AS Gap_Year,
+            disability_status AS Disability_Status,
+            college_branch AS College_Branch,
+            final_score AS predicted_priority_score,
+            1 AS is_override_record
+        FROM decision_center_applications
+        WHERE is_overridden = 1 AND final_score IS NOT NULL
+    """
+    
     try:
         conn = get_connection(DB_PATH)
-        df = pd.read_sql_query(query, conn)
+        df_base = pd.read_sql_query(base_query, conn)
+        df_overrides = pd.read_sql_query(override_query, conn)
         conn.close()
         
-        logger.info(f"   Extracted {len(df)} records from database")
+        logger.info(f"   Base applicant records: {len(df_base)}")
+        logger.info(f"   Admin-overridden records: {len(df_overrides)}")
+        
+        # Behavioral Cloning: duplicate override records to weight them
+        if not df_overrides.empty:
+            override_weighted = pd.concat(
+                [df_overrides] * OVERRIDE_WEIGHT_MULTIPLIER,
+                ignore_index=True
+            )
+            logger.info(f"   Override records after {OVERRIDE_WEIGHT_MULTIPLIER}x weighting: {len(override_weighted)}")
+            df = pd.concat([df_base, override_weighted], ignore_index=True)
+        else:
+            logger.info("   No override records found - using base data only")
+            df = df_base
+        
+        logger.info(f"   Total training records (after weighting): {len(df)}")
         
         if len(df) < min_records:
             raise ValueError(
@@ -156,8 +220,10 @@ def extract_data_from_database(min_records: int = 100) -> pd.DataFrame:
             logger.warning(f"   Found {null_scores} records with null scores - filtering out")
             df = df.dropna(subset=["predicted_priority_score"])
         
-        logger.info(f"   Data shape: {df.shape}")
+        logger.info(f"   Final data shape: {df.shape}")
         logger.info(f"   Score range: {df['predicted_priority_score'].min():.2f} - {df['predicted_priority_score'].max():.2f}")
+        override_pct = round((df["is_override_record"].sum() / len(df)) * 100, 1) if len(df) > 0 else 0
+        logger.info(f"   Override-sourced records: {override_pct}% of training data")
         
         return df
         
@@ -342,6 +408,58 @@ def evaluate_and_select_model(
 
 
 # ---------------------------------------------------------------------------
+# Unsupervised ML: K-Means Applicant Persona Clustering
+# ---------------------------------------------------------------------------
+
+def train_clustering_model(
+    X_train: np.ndarray,
+    n_clusters: int = N_CLUSTERS
+) -> KMeans:
+    """
+    Train a K-Means clustering model to assign Applicant Personas.
+    
+    This is an Unsupervised ML branch that groups applicants into
+    data-driven personas based on their feature profiles, providing
+    insights beyond the supervised priority score.
+    
+    Args:
+        X_train: Preprocessed training features
+        n_clusters: Number of clusters (default 4)
+    
+    Returns:
+        Fitted KMeans model
+    """
+    logger.info("\n" + "=" * 60)
+    logger.info("STEP 3b: Unsupervised ML - K-Means Applicant Personas")
+    logger.info("=" * 60)
+    
+    kmeans = KMeans(
+        n_clusters=n_clusters,
+        random_state=RANDOM_STATE,
+        n_init=10,
+        max_iter=300
+    )
+    kmeans.fit(X_train)
+    
+    # Evaluate clustering quality
+    labels = kmeans.labels_
+    inertia = kmeans.inertia_
+    sil_score = silhouette_score(X_train, labels) if len(set(labels)) > 1 else 0.0
+    
+    logger.info(f"   K-Means trained with k={n_clusters}")
+    logger.info(f"   Inertia: {inertia:.2f}")
+    logger.info(f"   Silhouette Score: {sil_score:.4f}")
+    
+    # Log cluster distribution
+    unique, counts = np.unique(labels, return_counts=True)
+    for cluster_id, count in zip(unique, counts):
+        persona = CLUSTER_PERSONA_MAP.get(cluster_id, f"Cluster {cluster_id}")
+        logger.info(f"   Cluster {cluster_id} ({persona}): {count} applicants ({count/len(labels)*100:.1f}%)")
+    
+    return kmeans
+
+
+# ---------------------------------------------------------------------------
 # Model Saving with Versioning
 # ---------------------------------------------------------------------------
 
@@ -352,6 +470,8 @@ def save_model_with_versioning(
     model_name: str,
     r2_score: float,
     mae: float,
+    kmeans_model: KMeans = None,
+    kmeans_silhouette: float = 0.0,
     version: str = None
 ) -> str:
     """
@@ -364,13 +484,15 @@ def save_model_with_versioning(
         model_name: Name of the model
         r2_score: R² score
         mae: Mean absolute error
+        kmeans_model: Trained K-Means clustering model (optional)
+        kmeans_silhouette: Silhouette score for the K-Means model
         version: Optional version string (defaults to current date)
     
     Returns:
         Path to the saved model
     """
     logger.info("\n" + "=" * 60)
-    logger.info("STEP 5: Saving Model with Versioning")
+    logger.info("STEP 6: Saving Model with Versioning")
     logger.info("=" * 60)
     
     # Generate version string
@@ -400,6 +522,12 @@ def save_model_with_versioning(
     joblib.dump(preprocessor, preprocessor_path)
     logger.info(f"   Saved preprocessor: {preprocessor_path}")
     
+    # Save K-Means clustering model
+    if kmeans_model is not None:
+        kmeans_path = MODELS_DIR / "kmeans_model.pkl"
+        joblib.dump(kmeans_model, kmeans_path)
+        logger.info(f"   Saved K-Means persona model: {kmeans_path}")
+    
     # Create and save SHAP explainer
     logger.info("   Creating SHAP explainer...")
     explainer = shap.Explainer(model, X_train)
@@ -413,6 +541,10 @@ def save_model_with_versioning(
         "model_name": model_name,
         "r2_score": float(r2_score),
         "mae": float(mae),
+        "kmeans_clusters": N_CLUSTERS,
+        "kmeans_silhouette": float(kmeans_silhouette),
+        "kmeans_persona_map": CLUSTER_PERSONA_MAP,
+        "behavioral_cloning_weight": OVERRIDE_WEIGHT_MULTIPLIER,
         "training_date": datetime.now().isoformat(),
         "training_samples": len(X_train),
         "random_state": RANDOM_STATE
@@ -476,7 +608,7 @@ def run_retraining_pipeline(
     logger.info(f"Started at: {start_time}")
     
     try:
-        # Step 1: Extract data
+        # Step 1: Extract data (with Behavioral Cloning weighting)
         df = extract_data_from_database(min_records=min_records)
         
         # Step 2: Preprocess
@@ -486,15 +618,22 @@ def run_retraining_pipeline(
         if not dry_run:
             save_training_data(X_train, X_test, y_train, y_test, X_test_raw)
         
-        # Step 3: Train models
+        # Step 3a: Train supervised models
         rf_model, xgb_model = train_models(X_train, y_train)
         
-        # Step 4: Evaluate and select
+        # Step 3b: Train unsupervised K-Means clustering
+        kmeans_model = train_clustering_model(X_train)
+        kmeans_sil = silhouette_score(X_train, kmeans_model.labels_) if len(set(kmeans_model.labels_)) > 1 else 0.0
+        
+        # Step 4: Evaluate and select best supervised model
         best_model, best_name, best_r2, best_mae = evaluate_and_select_model(
             rf_model, xgb_model, X_test, y_test, X_test_raw
         )
         
-        # Step 5: Save model
+        # Step 5: Assign persona labels to clusters based on centroid analysis
+        _assign_persona_labels(kmeans_model, preprocessor)
+        
+        # Step 6: Save all model artifacts
         if not dry_run:
             model_path = save_model_with_versioning(
                 best_model,
@@ -503,6 +642,8 @@ def run_retraining_pipeline(
                 best_name,
                 best_r2,
                 best_mae,
+                kmeans_model=kmeans_model,
+                kmeans_silhouette=kmeans_sil,
                 version=version
             )
         else:
@@ -516,9 +657,10 @@ def run_retraining_pipeline(
         logger.info("RETRAINING PIPELINE COMPLETE")
         logger.info("=" * 60)
         logger.info(f"Duration: {duration:.2f} seconds")
-        logger.info(f"Model: {best_name}")
+        logger.info(f"Supervised Model: {best_name}")
         logger.info(f"R² Score: {best_r2:.4f}")
         logger.info(f"MAE: {best_mae:.4f}")
+        logger.info(f"Unsupervised K-Means Silhouette: {kmeans_sil:.4f}")
         logger.info(f"Saved to: {model_path}")
         
         return {
@@ -527,6 +669,8 @@ def run_retraining_pipeline(
             "model_name": best_name,
             "r2_score": best_r2,
             "mae": best_mae,
+            "kmeans_silhouette": kmeans_sil,
+            "kmeans_clusters": N_CLUSTERS,
             "training_samples": len(df),
             "duration_seconds": duration,
             "timestamp": end_time.isoformat()
@@ -539,6 +683,50 @@ def run_retraining_pipeline(
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
+
+
+def _assign_persona_labels(kmeans_model: KMeans, preprocessor) -> None:
+    """
+    Analyze cluster centroids to assign meaningful persona labels.
+    
+    Examines the centroid values of key features (Family_Income, academic scores)
+    to dynamically order the clusters by need vs. merit profiles.
+    The CLUSTER_PERSONA_MAP is updated in-place based on centroid analysis.
+    """
+    global CLUSTER_PERSONA_MAP
+    
+    centroids = kmeans_model.cluster_centers_
+    n_numeric = len(NUMERIC_FEATURES)
+    
+    # Extract the numeric portion of each centroid (first n_numeric columns)
+    # Column 0 = Family_Income (standardized), Column 1-5 = academic scores
+    income_col = 0  # Family_Income is first numeric feature
+    academic_cols = list(range(1, min(6, n_numeric)))  # 10th, 12th, CET, JEE, University
+    
+    cluster_profiles = []
+    for i in range(len(centroids)):
+        income_z = centroids[i][income_col]  # Standardized income (negative = low income = high need)
+        academic_avg = np.mean([centroids[i][c] for c in academic_cols]) if academic_cols else 0
+        cluster_profiles.append((i, income_z, academic_avg))
+    
+    # Sort by income (ascending = lowest income first = highest need)
+    cluster_profiles.sort(key=lambda x: x[1])
+    
+    persona_labels = [
+        "High Need, Strong Academics",
+        "Balanced Profile",
+        "Merit Elite",
+        "Borderline Candidate",
+    ]
+    
+    # Assign labels based on sorted order
+    for idx, (cluster_id, _, _) in enumerate(cluster_profiles):
+        if idx < len(persona_labels):
+            CLUSTER_PERSONA_MAP[cluster_id] = persona_labels[idx]
+    
+    logger.info("   Persona labels assigned based on centroid analysis:")
+    for cid, label in CLUSTER_PERSONA_MAP.items():
+        logger.info(f"     Cluster {cid} -> {label}")
 
 
 # ---------------------------------------------------------------------------

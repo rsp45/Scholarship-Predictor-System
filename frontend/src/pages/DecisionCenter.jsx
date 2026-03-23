@@ -672,6 +672,34 @@ export default function DecisionCenter() {
             </div>
           )}
 
+          {/* ML Applicant Persona (Unsupervised K-Means) */}
+          {result && result.ml_persona && (
+            <div className="bg-tejas-card border border-teal-500/20 rounded-xl p-5 animate-fade-in">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-lg">🧬</span>
+                <h3 className="text-xs font-semibold text-tejas-muted uppercase tracking-wider">
+                  ML Applicant Persona
+                </h3>
+                <span className="ml-auto text-[10px] text-teal-500 bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                  K-Means Cluster
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <p className="text-lg font-bold text-teal-400 mb-1">{result.ml_persona}</p>
+                  <p className="text-[11px] text-tejas-muted">
+                    Assigned by unsupervised K-Means clustering (k=4) based on the
+                    applicant's feature profile. Cluster ID: <span className="text-teal-400 font-semibold">{result.ml_cluster_id}</span>
+                  </p>
+                </div>
+                <div className="w-14 h-14 rounded-full bg-teal-500/10 border border-teal-500/30 flex items-center justify-center">
+                  <span className="text-xl font-bold text-teal-400">C{result.ml_cluster_id}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Radar Chart */}
           {result && (
             <div className="bg-tejas-card border border-tejas-border rounded-xl p-6 animate-fade-in">
