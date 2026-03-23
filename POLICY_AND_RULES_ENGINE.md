@@ -535,6 +535,26 @@ The Command Center offers two allocation strategies:
 - 1,000 applicants; top 100 → Tier 1; next 200 → Tier 2
 - Actual funding distributed via separate grant cycles
 
+### Mode 3: Knapsack Optimization (allocation_engine = "knapsack") 🆕
+
+**Algorithm (Operations Research - Fractional Knapsack):**
+1. For each applicant, compute value density = Priority Score (impact per rupee)
+2. Sort candidates by value density (descending)
+3. Allocate to maximize `SUM(Priority Score × Granted Aid)` under budget constraint:
+   - Score ≥ 75 → Tier 1 (100% tuition)
+   - Score ≥ 50 → Tier 2 (60% tuition)
+   - Score < 50 → Not Funded
+4. If budget runs out mid-allocation, fractional allocation to the boundary student
+
+**Objective Function:**
+$$\text{Maximize } \sum_{i=1}^{n} (\text{Score}_i \times \text{Funding}_i) \quad \text{s.t. } \sum \text{Funding}_i \leq B$$
+
+**Characteristics**:
+- Optimizes total cohort impact (not just individual ranking)
+- May prefer funding more students at Tier 2 over fewer at Tier 1
+- Reports `total_weighted_impact` score for comparison
+- Available via Command Center toggle
+
 ---
 
 ## Appeals & Override Process
@@ -635,7 +655,8 @@ All policy parameters are configurable (with approvals):
 |---------|------|---------|
 | 1.0 | Jan 2026 | Initial policy (3-tier, single-track) |
 | 2.0 | Feb 2026 | Added track-aware logic, competitive exams, fairness audit |
-| **2026.1** | **Mar 19, 2026** | **(This Version)** Input validation, Command Center modes, policy bonuses capped |
+| 2026.1 | Mar 19, 2026 | Input validation, Command Center modes, policy bonuses capped |
+| **2026.2** | **Mar 23, 2026** | **(This Version)** Behavioral Cloning, K-Means Personas, Knapsack Optimization Allocator |
 
 ---
 

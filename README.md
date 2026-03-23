@@ -47,6 +47,22 @@
 
 ---
 
+## What's New in v2026.2 (ML Architecture Upgrade)
+
+🧠 **Focus**: Transforming Tejas from a score-prediction engine into a true ML-driven governance system.
+
+| Feature | Description |
+|---------|-------------|
+| **🧬 Behavioral Cloning** | Retraining pipeline now up-weights records where admins overrode ML scores (3× weight), teaching the model to learn from human expert decisions |
+| **🔬 K-Means Applicant Personas** | Unsupervised K-Means clustering (k=4) assigns each applicant a human-readable persona (e.g., "Merit Elite", "High Need, Strong Academics", "Borderline Candidate") |
+| **⚡ Knapsack Optimization Allocator** | Operations Research-based fractional knapsack algorithm maximizes total cohort impact `SUM(Score × Funding)` subject to budget constraints |
+| **🎛️ Allocation Engine Toggle** | Command Center now lets admins switch between Greedy (top-down) and Knapsack (optimization) allocation engines in real-time |
+| **🧬 ML Persona Card (UI)** | Decision Center displays the K-Means cluster persona for each analyzed applicant with cluster ID |
+
+**Key ML Artifacts Added**: `kmeans_model.pkl`, dynamic persona labeling, silhouette score validation
+
+---
+
 ## Problem Statement
 Universities face a "Trilemma of Allocation" when distributing limited scholarship funds:
 1.  **Volume vs. Velocity:** Manually reviewing thousands of financial documents creates bottlenecks.
@@ -359,8 +375,9 @@ Every decision is auditable:
 | **Language** | Python 3.10+, JavaScript/JSX |
 | **Frontend** | React, Vite, Tailwind CSS, Recharts |
 | **Backend API**| FastAPI, Uvicorn |
-| **Machine Learning** | Scikit-Learn (RandomForest, Ridge), XGBoost, LightGBM |
+| **Machine Learning** | Scikit-Learn (RandomForest, Ridge, K-Means), XGBoost, LightGBM |
 | **Explainability** | SHAP (SHapley Additive exPlanations) |
+| **Optimization** | Operations Research (Fractional Knapsack Allocator) |
 | **Database** | SQLite (WAL mode) |
 | **Data Processing** | Pandas, NumPy, Joblib |
 | **Visualization** | Matplotlib, Seaborn, Plotly |
@@ -392,6 +409,7 @@ Scholarship-Predictor-System/
 │
 ├── models/
 │   ├── scholarship_model.pkl     # Trained Pipeline (preprocessor + model)
+│   ├── kmeans_model.pkl          # K-Means Persona Clustering Model
 │   ├── shap_explainer.pkl        # Pre-built SHAP TreeExplainer
 │   ├── preprocessor.pkl          # Fitted ColumnTransformer
 │   ├── X_train.npy / X_test.npy  # Processed feature arrays

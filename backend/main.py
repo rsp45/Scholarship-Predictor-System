@@ -12,6 +12,8 @@ import sqlite3
 import sys
 import time
 from typing import Optional
+
+import yaml
 from uuid import uuid4
 
 import joblib
@@ -33,9 +35,28 @@ if BASE_DIR not in sys.path:
 from src.db_setup import DB_PATH, initialize_database
 
 MODEL_PATH = os.path.join(BASE_DIR, "models", "scholarship_model.pkl")
+KMEANS_PATH = os.path.join(BASE_DIR, "models", "kmeans_model.pkl")
+
+# ---------------------------------------------------------------------------
+# Dynamic YAML Configuration: load all thresholds & bonuses from the
+# central config file so that no magic numbers exist in application code.
+# ---------------------------------------------------------------------------
+_CONFIG_PATH = os.path.join(BASE_DIR, "config", "scholarship_rules.yaml")
+with open(_CONFIG_PATH, "r", encoding="utf-8") as _cfg_file:
+    POLICY_RULES: dict = yaml.safe_load(_cfg_file)
+print(f"   [OK] Loaded policy rules from {_CONFIG_PATH} (v{POLICY_RULES.get('metadata', {}).get('version', '?')})")
 
 pipeline = None
+kmeans_model = None
 mlops_cache = None
+
+# K-Means Persona Labels (updated dynamically by retrain_pipeline.py)
+DEFAULT_PERSONA_MAP = {
+    0: "High Need, Strong Academics",
+    1: "Merit Elite",
+    2: "Balanced Profile",
+    3: "Borderline Candidate",
+}
 
 PARENT_OCCUPATION_MAP = {
     "bpl": "BPL",
@@ -57,30 +78,40 @@ DEFAULT_ADMIN_USER = "Dr. Admin"
 # Policy Engine: Non-Linear Scoring Functions
 # ===========================================================================
 
-def calculate_income_score(current_income: float, max_income: float = 2000000) -> float:
+def calculate_income_score(current_income: float, max_income: float = 2500000, min_income: float = 50000) -> float:
     """
     Calculate income-based score using logarithmic decay.
 
-    Formula: income_score = log(max_income / current_income) normalized to 0-100
+    Formula: income_score = log(max_income / current_income) / log(max_income / min_income) * 100
+
+    Lower income → higher score (progressive redistribution).
+    Uses the Need-Based eligibility cap (₹25L) as the max reference and a
+    realistic poverty floor (₹50K) as the min reference.
+
+    Reference Points:
+        ₹50,000    → 100 pts (extreme poverty)
+        ₹100,000   → ~82 pts (very low income)
+        ₹250,000   → ~60 pts (low income — deserves strong support)
+        ₹500,000   → ~42 pts (lower-middle class)
+        ₹1,000,000 → ~24 pts (middle class)
+        ₹2,500,000 → ~0  pts (at eligibility cap)
 
     Args:
         current_income: Applicant's family income in INR
-        max_income: Maximum reference income (default 20 lakhs)
+        max_income: Maximum reference income (default ₹25 lakhs — eligibility cap)
+        min_income: Minimum reference income floor (default ₹50,000)
 
     Returns:
         Normalized income score between 0-100
     """
-    if current_income <= 0:
+    if current_income <= min_income:
         return 100.0
+    if current_income >= max_income:
+        return 0.0
 
-    # Calculate raw log score
-    ratio = max_income / current_income
-    log_score = math.log(ratio)
-
-    # Normalize to 0-100 scale
-    # At max_income: log(1) = 0 -> score = 0
-    # At 1/100th of max_income: log(100) = 4.6 -> score = 100
-    max_log = math.log(100)  # ~4.6
+    # Logarithmic decay: lower income → higher score
+    log_score = math.log(max_income / current_income)
+    max_log = math.log(max_income / min_income)
     normalized_score = (log_score / max_log) * 100
 
     return round(max(0.0, min(100.0, normalized_score)), 2)
@@ -116,42 +147,46 @@ def calculate_policy_score(
 ) -> float:
     """
     Calculate policy-based score using rule-based bonuses.
-    
+    All bonus values are read dynamically from POLICY_RULES (scholarship_rules.yaml).
+
     Returns:
-        Policy score component (0-100 with bonuses)
+        Policy score component (0 to policy_score_max)
     """
     score = 0.0
-    
-    # Caste category bonuses
-    caste_bonuses = {
-        "General": 0,
-        "OBC": 5,
-        "SC": 10,
-        "ST": 15
-    }
+
+    # --- Caste category bonus (from YAML) ---
+    caste_bonuses: dict = POLICY_RULES.get("caste_category_bonus", {})
     score += caste_bonuses.get(caste_category, 0)
-    
-    # Domicile bonus
+
+    # --- Domicile bonus (from YAML) ---
     if domicile_maharashtra == 1:
-        score += 5
-    
-    # Gender bonus (girl child)
-    if gender == "Female":
-        score += 5
-    
-    # Disability bonus
+        score += POLICY_RULES.get("domicile_maharashtra_bonus", 0)
+
+    # --- Gender bonus (from YAML) ---
+    gender_bonuses: dict = POLICY_RULES.get("gender_bonus", {})
+    score += gender_bonuses.get(gender, 0)
+
+    # --- Disability (PwD) bonus (from YAML) ---
     if disability_status == "Yes":
-        score += 10
-    
-    # Extracurricular bonus (1-10 points scaled from 0-10 input)
-    score += min(10, extracurricular_score)
-    
-    # Gap year penalty
+        score += POLICY_RULES.get("pwd_bonus", 0)
+
+    # --- Extracurricular bonus (banded lookup from YAML) ---
+    ec_bands: dict = POLICY_RULES.get("extracurricular_bonus", {})
+    ec_bonus = 0
+    for band_key, bonus_val in ec_bands.items():
+        lo, hi = (int(x) for x in str(band_key).split("-"))
+        if lo <= extracurricular_score <= hi:
+            ec_bonus = bonus_val
+            break
+    score += ec_bonus
+
+    # --- Gap year penalty (unchanged; not in YAML) ---
     if gap_year > 0:
         score -= 5
 
-    # Cap policy-based score to avoid infinite bonus stacking
-    capped_score = min(20.0, score)
+    # --- Cap policy score (from YAML) ---
+    policy_cap = POLICY_RULES.get("policy_score_max", 20)
+    capped_score = min(float(policy_cap), score)
 
     return round(max(0.0, capped_score), 2)
 
@@ -325,6 +360,202 @@ def allocate_funds(
             "rejected_or_exhausted": rejected_count,
         },
         "fairness_audit": fairness_audit,
+        "allocation_engine": "greedy",
+    }
+
+
+# ===========================================================================
+# Operations Research: Knapsack-Style Optimization Allocator
+# ===========================================================================
+
+def allocate_funds_knapsack(
+    ranked_applicants: list,
+    total_budget: float,
+    tuition_amount: float = 100000,
+) -> dict:
+    """
+    Optimize scholarship fund allocation using a Knapsack-style approach.
+    
+    Instead of greedy top-down filling, this algorithm maximizes the total
+    weighted impact (Priority Score * Funding Granted) across the entire
+    cohort subject to the budget constraint.
+    
+    Uses fractional knapsack (value-density sorting) since funding can be
+    100% (Tier 1) or 60% (Tier 2), allowing for fractional allocation.
+    
+    Objective: Maximize SUM(priority_score * granted_aid) for all applicants
+    Constraint: SUM(granted_aid) <= total_budget
+    """
+    total_applicants = len(ranked_applicants)
+    if total_applicants == 0:
+        return {
+            "allocations": [],
+            "budget_summary": {"initial_budget": total_budget, "remaining_budget": total_budget, "total_allocated": 0, "budget_utilization_percentage": 0},
+            "allocation_summary": {"total_applicants": 0, "tier_1": 0, "tier_2": 0, "tier_3": 0, "ineligible": 0, "rejected_or_exhausted": 0},
+            "fairness_audit": {},
+            "allocation_engine": "knapsack",
+        }
+
+    # Step 1: Build candidate allocation items
+    # Each applicant can receive Tier 1 (100%) or Tier 2 (60%) funding
+    # Value = priority_score * aid_amount (impact per rupee)
+    candidates = []
+    for applicant in ranked_applicants:
+        score = applicant.get("priority_score", 0)
+        app_id = applicant.get("application_id")
+        
+        # Tier 1 option: Full aid
+        tier1_cost = tuition_amount * 1.0
+        tier1_value = score * tier1_cost  # Total impact
+        tier1_density = score  # Value per rupee = score (since cost normalizes)
+        
+        # Tier 2 option: Partial aid
+        tier2_cost = tuition_amount * 0.6
+        tier2_value = score * tier2_cost
+        tier2_density = score  # Same density since score/1 = score
+        
+        candidates.append({
+            "applicant": applicant,
+            "score": score,
+            "tier1_cost": tier1_cost,
+            "tier1_value": tier1_value,
+            "tier2_cost": tier2_cost,
+            "tier2_value": tier2_value,
+            "density": tier1_density,  # Value density for sorting
+        })
+    
+    # Step 2: Sort by value density (highest impact per rupee first)
+    candidates.sort(key=lambda x: x["density"], reverse=True)
+    
+    # Step 3: Fractional Knapsack allocation
+    remaining_budget = total_budget
+    allocations = []
+    
+    for cand in candidates:
+        applicant = cand["applicant"]
+        score = cand["score"]
+        
+        if remaining_budget <= 0 or score < 50:  # Minimum score threshold
+            # Not funded
+            allocations.append({
+                "application_id": applicant.get("application_id"),
+                "applicant_name": applicant.get("applicant_name"),
+                "priority_score": score,
+                "gender": applicant.get("gender", "Unknown"),
+                "caste_category": applicant.get("caste_category", "Unknown"),
+                "tier": "Tier 3",
+                "aid_percentage": 0,
+                "requested_aid": 0,
+                "granted_aid": 0,
+                "allocation_status": "Not Funded",
+            })
+            continue
+        
+        # Try Tier 1 first (maximize impact)
+        if remaining_budget >= cand["tier1_cost"] and score >= 75:
+            granted = cand["tier1_cost"]
+            remaining_budget -= granted
+            allocations.append({
+                "application_id": applicant.get("application_id"),
+                "applicant_name": applicant.get("applicant_name"),
+                "priority_score": score,
+                "gender": applicant.get("gender", "Unknown"),
+                "caste_category": applicant.get("caste_category", "Unknown"),
+                "tier": "Tier 1",
+                "aid_percentage": 100,
+                "requested_aid": round(cand["tier1_cost"], 2),
+                "granted_aid": round(granted, 2),
+                "allocation_status": "Approved (Optimized)",
+            })
+        # Try Tier 2 (more students funded with same budget)
+        elif remaining_budget >= cand["tier2_cost"] and score >= 50:
+            granted = cand["tier2_cost"]
+            remaining_budget -= granted
+            allocations.append({
+                "application_id": applicant.get("application_id"),
+                "applicant_name": applicant.get("applicant_name"),
+                "priority_score": score,
+                "gender": applicant.get("gender", "Unknown"),
+                "caste_category": applicant.get("caste_category", "Unknown"),
+                "tier": "Tier 2",
+                "aid_percentage": 60,
+                "requested_aid": round(cand["tier2_cost"], 2),
+                "granted_aid": round(granted, 2),
+                "allocation_status": "Approved (Optimized)",
+            })
+        # Partial allocation with remaining budget
+        elif remaining_budget > 0 and score >= 50:
+            granted = remaining_budget
+            remaining_budget = 0
+            allocations.append({
+                "application_id": applicant.get("application_id"),
+                "applicant_name": applicant.get("applicant_name"),
+                "priority_score": score,
+                "gender": applicant.get("gender", "Unknown"),
+                "caste_category": applicant.get("caste_category", "Unknown"),
+                "tier": "Tier 2",
+                "aid_percentage": round((granted / tuition_amount) * 100, 1),
+                "requested_aid": round(cand["tier2_cost"], 2),
+                "granted_aid": round(granted, 2),
+                "allocation_status": "Partial Allocation (Budget Limit)",
+            })
+        else:
+            allocations.append({
+                "application_id": applicant.get("application_id"),
+                "applicant_name": applicant.get("applicant_name"),
+                "priority_score": score,
+                "gender": applicant.get("gender", "Unknown"),
+                "caste_category": applicant.get("caste_category", "Unknown"),
+                "tier": "Tier 3",
+                "aid_percentage": 0,
+                "requested_aid": 0,
+                "granted_aid": 0,
+                "allocation_status": "Not Funded (Budget Exhausted)",
+            })
+    
+    # Compute summaries
+    tier_1_count = sum(1 for a in allocations if a["tier"] == "Tier 1")
+    tier_2_count = sum(1 for a in allocations if a["tier"] == "Tier 2")
+    tier_3_count = sum(1 for a in allocations if a["tier"] == "Tier 3")
+    selected = [a for a in allocations if a["tier"] in {"Tier 1", "Tier 2"}]
+    total_granted = sum(a["granted_aid"] for a in allocations)
+    
+    # Compute total weighted impact (the objective function value)
+    total_impact = sum(a["priority_score"] * a["granted_aid"] for a in allocations)
+    
+    def selection_rate_by_attribute(attribute: str, values: list) -> dict:
+        rates = {}
+        for v in values:
+            total_by_attr = sum(1 for a in allocations if a.get(attribute) == v)
+            selected_by_attr = sum(1 for a in selected if a.get(attribute) == v)
+            rates[v] = round((selected_by_attr / total_by_attr) * 100, 2) if total_by_attr > 0 else 0.0
+        return rates
+    
+    fairness_audit = {
+        "gender_selection_rate": selection_rate_by_attribute("gender", ["Male", "Female", "Other", "Unknown"]),
+        "caste_selection_rate": selection_rate_by_attribute("caste_category", ["General", "OBC", "SC", "ST", "Unknown"]),
+        "overall_selection_rate": round((len(selected) / total_applicants) * 100, 2) if total_applicants > 0 else 0.0,
+    }
+    
+    return {
+        "allocations": allocations,
+        "budget_summary": {
+            "initial_budget": round(total_budget, 2),
+            "remaining_budget": round(remaining_budget, 2),
+            "total_allocated": round(total_granted, 2),
+            "budget_utilization_percentage": round((total_granted / total_budget) * 100, 2) if total_budget > 0 else 0,
+            "total_weighted_impact": round(total_impact, 2),
+        },
+        "allocation_summary": {
+            "total_applicants": total_applicants,
+            "tier_1": tier_1_count,
+            "tier_2": tier_2_count,
+            "tier_3": tier_3_count,
+            "ineligible": 0,
+            "rejected_or_exhausted": total_applicants - tier_1_count - tier_2_count,
+        },
+        "fairness_audit": fairness_audit,
+        "allocation_engine": "knapsack",
     }
 
 
@@ -334,13 +565,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
+_frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "*",
-    ],
+    allow_origins=[_frontend_url, "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -384,25 +613,43 @@ class ApplicantData(BaseModel):
 
 def check_eligibility(applicant: 'ApplicantData', track: str) -> bool:
     """Hard eligibility filters: if failed, applicant is Tier 4 Ineligible.
-    
-    Criteria:
-    - All tracks: 12th percentage >= 60
-    - Need Based: Family income <= ₹25,00,000
-    - Merit Based: 12th percentage >= 70% (higher academic bar for merit track)
+
+    All thresholds are read dynamically from POLICY_RULES (scholarship_rules.yaml).
+
+    Criteria (from YAML):
+    - All tracks: 12th percentage >= academic_floor_twelfth_percent
+    - Need Based: Family income <= need_based_income_cap
+    - Merit Based: 12th percentage >= merit_based_academic_floor
+                   AND at least one entrance exam meets threshold
+                       (JEE >= merit_based_entrance_exam_min OR
+                        MH-CET >= merit_based_mhcet_threshold)
     """
-    # Universal criteria
-    if applicant.twelfth_percentage < 60:
+    # Universal criteria (from YAML)
+    universal_floor = POLICY_RULES.get("academic_floor_twelfth_percent", 60)
+    if applicant.twelfth_percentage < universal_floor:
         return False
-    
+
     # Track-specific criteria
     if track == "Need Based":
-        if applicant.family_income > 2500000:
+        income_cap = POLICY_RULES.get("need_based_income_cap", 2500000)
+        if applicant.family_income > income_cap:
             return False
     elif track == "Merit Based":
-        # For merit-based, require higher academic performance
-        if applicant.twelfth_percentage < 70:
+        # Higher academic bar (from YAML)
+        merit_floor = POLICY_RULES.get("merit_based_academic_floor", 70)
+        if applicant.twelfth_percentage < merit_floor:
             return False
-    
+
+        # Entrance exam gate: at least one exam must meet its threshold
+        entrance_min = POLICY_RULES.get("merit_based_entrance_exam_min", 50)
+        mhcet_min = POLICY_RULES.get("merit_based_mhcet_threshold", 60)
+
+        jee_ok = applicant.jee_percentile >= entrance_min
+        mhcet_ok = applicant.mh_cet_percentile >= mhcet_min
+
+        if not (jee_ok or mhcet_ok):
+            return False
+
     return True
 
 
@@ -414,12 +661,14 @@ class SimulationRequest(BaseModel):
     income_weight: float = Field(default=0.4, ge=0, le=1, description="Weight for income/need component (0-1)")
     policy_weight: float = Field(default=0.2, ge=0, le=1, description="Weight for policy component (0-1)")
     base_tuition: float = Field(default=100000, gt=0, description="Base tuition amount for aid calculations")
+    allocation_engine: str = Field(default="greedy", description="Allocation engine: 'greedy' or 'knapsack'")
+    use_budget: bool = Field(default=True, description="Whether to enforce budget constraint")
 
 
 @app.on_event("startup")
 def startup() -> None:
-    """Ensure schema exists and load the production pipeline."""
-    global pipeline
+    """Ensure schema exists and load the production pipeline + K-Means."""
+    global pipeline, kmeans_model
 
     initialize_database()
 
@@ -429,6 +678,13 @@ def startup() -> None:
     pipeline = joblib.load(MODEL_PATH)
     print(f"   [OK] Loaded pipeline from {MODEL_PATH}")
     print(f"   Pipeline steps: {list(pipeline.named_steps.keys())}")
+
+    # Load K-Means Persona Model (optional, non-fatal if missing)
+    if os.path.exists(KMEANS_PATH):
+        kmeans_model = joblib.load(KMEANS_PATH)
+        print(f"   [OK] Loaded K-Means persona model from {KMEANS_PATH}")
+    else:
+        print(f"   [WARN] K-Means model not found at {KMEANS_PATH} - personas disabled")
 
 
 def get_db_connection() -> sqlite3.Connection:
@@ -771,9 +1027,12 @@ def predict(data: ApplicantData):
     # Determine dynamic weights based on scholarship track
     track = data.scholarship_track or "Need Based"
     if track == "Merit Based":
-        dynamic_weights = {"merit": 0.70, "income": 0.15, "policy": 0.15}
+        # Merit-focused: 60% merit, 20% income, 20% policy
+        dynamic_weights = {"merit": 0.60, "income": 0.20, "policy": 0.20}
     elif track == "Need Based":
-        dynamic_weights = {"merit": 0.15, "income": 0.70, "policy": 0.15}
+        # Need-focused: 25% merit, 55% income, 20% policy
+        # (Prioritizes financial need but still rewards academic excellence)
+        dynamic_weights = {"merit": 0.25, "income": 0.55, "policy": 0.20}
     else:
         # Default/fallback weights
         dynamic_weights = {"merit": 0.40, "income": 0.40, "policy": 0.20}
@@ -883,13 +1142,28 @@ def predict(data: ApplicantData):
 
     persist_decision_records(data, ml_score, final_score, tier)
 
+    # K-Means Persona Assignment (Unsupervised ML)
+    applicant_persona = None
+    applicant_cluster = None
+    if kmeans_model is not None:
+        try:
+            # Use the pipeline's preprocessor to transform the input
+            preprocessor = pipeline.named_steps.get("preprocessor")
+            if preprocessor is not None:
+                transformed = preprocessor.transform(df)
+                cluster_id = int(kmeans_model.predict(transformed)[0])
+                applicant_cluster = cluster_id
+                applicant_persona = DEFAULT_PERSONA_MAP.get(cluster_id, f"Cluster {cluster_id}")
+        except Exception:
+            applicant_persona = "Unavailable"
+
     message = (
         f"Admin override applied by {normalized_override_user(data)} (reason: {data.override_reason or 'N/A'})."
         if is_overridden
         else f"{track} algorithm completed successfully."
     )
 
-    return {
+    response = {
         "final_score": final_score,
         "ml_score": ml_score,
         "tier": tier,
@@ -899,6 +1173,13 @@ def predict(data: ApplicantData):
         "breakdown": score_breakdown,
         "message": message,
     }
+
+    # Include persona if K-Means model is loaded
+    if applicant_persona is not None:
+        response["ml_persona"] = applicant_persona
+        response["ml_cluster_id"] = applicant_cluster
+
+    return response
 
 
 @app.post("/api/simulate")
@@ -1017,12 +1298,20 @@ def simulate_policy(request: SimulationRequest):
     for applicant in ranked_applicants:
         applicant["priority_score"] = applicant.pop("simulated_priority_score")
 
-    # Run budget allocation
-    allocation_result = allocate_funds(
-        ranked_applicants=ranked_applicants,
-        total_budget=request.total_budget,
-        tuition_amount=request.base_tuition,
-    )
+    # Run budget allocation (selectable engine)
+    if request.allocation_engine == "knapsack" and request.use_budget:
+        allocation_result = allocate_funds_knapsack(
+            ranked_applicants=ranked_applicants,
+            total_budget=request.total_budget,
+            tuition_amount=request.base_tuition,
+        )
+    else:
+        allocation_result = allocate_funds(
+            ranked_applicants=ranked_applicants,
+            total_budget=request.total_budget,
+            tuition_amount=request.base_tuition,
+            use_budget=request.use_budget,
+        )
 
     # Calculate impact metrics
     allocations = allocation_result["allocations"]
@@ -1082,6 +1371,7 @@ def simulate_policy(request: SimulationRequest):
         },
         "budget_summary": allocation_result["budget_summary"],
         "allocation_summary": allocation_result["allocation_summary"],
+        "fairness_audit": allocation_result["fairness_audit"],
         "top_allocations": allocations[:20],  # Return top 20 for preview
         "total_applicants": len(df),
         "message": f"Policy simulation complete. Funded {len(funded_students)} students with ₹{budget_utilized:,.2f}.",

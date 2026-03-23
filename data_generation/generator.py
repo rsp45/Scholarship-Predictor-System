@@ -1,14 +1,17 @@
 # FILE: data_generation/generator.py
 # ===========================================================================
-# Generates 2,000 synthetic scholarship-applicant records using a
-# "Committee Simulator" approach. Thresholds, bonuses, and weights are loaded
-# from config/scholarship_rules.yaml.
+# Generates 2,000 synthetic scholarship-applicant records using the
+# PRODUCTION scoring functions (log-decay income, sigmoid merit, policy
+# bonuses) so that training data exactly matches serving math.
+#
+# Thresholds and weights are loaded from config/scholarship_rules.yaml.
 #
 # Outputs:
 # - data/scholarship.db -> applicants
 # - data/scholarship.db -> generated_applications
 # ===========================================================================
 
+import math
 import random
 import sqlite3
 import sys
@@ -36,6 +39,14 @@ from src.db_setup import (  # noqa: E402
     initialize_database,
 )
 
+# Import production scoring functions (eliminates training-serving skew)
+from backend.main import (  # noqa: E402
+    calculate_income_score,
+    calculate_merit_score,
+    calculate_policy_score,
+    calculate_policy_priority_score,
+)
+
 np.random.seed(42)
 random.seed(42)
 
@@ -50,9 +61,14 @@ with open(CONFIG_PATH, "r", encoding="utf-8") as file:
     rules = yaml.safe_load(file)
 
 print(f"  Config loaded from {CONFIG_PATH}")
-print(f"  income_threshold : {rules['income_threshold']}")
-print(f"  income_weight    : {rules['income_weight']}")
-print(f"  merit_weight     : {rules['merit_weight']}")
+
+# Read from the updated nested structure
+weights = rules["default_weights"]
+print(f"  income_weight    : {weights['income']}")
+print(f"  merit_weight     : {weights['merit']}")
+print(f"  policy_weight    : {weights['policy']}")
+print(f"  income cap       : {rules['need_based_income_cap']}")
+print(f"  merit sigmoid k  : {rules['merit_sigmoid_k']}")
 
 # ---------------------------------------------------------------------------
 # 2. Generate IDs and Names
@@ -111,52 +127,52 @@ data = {
 df = pd.DataFrame(data)
 
 # ---------------------------------------------------------------------------
-# 4. Committee Simulator - Calculate Priority Score
+# 4. Production-Aligned Scoring (No Training-Serving Skew)
+# ---------------------------------------------------------------------------
+# Uses the EXACT same non-linear functions as backend/main.py:
+#   - calculate_income_score  : logarithmic decay
+#   - calculate_merit_score   : sigmoid (logistic) curve
+#   - calculate_policy_score  : rule-based bonuses (capped at 20)
+#   - calculate_policy_priority_score : weighted combination (40/40/20)
 # ---------------------------------------------------------------------------
 
-income_min = df["Family_Income"].min()
-income_max = df["Family_Income"].max()
-income_norm = 1 - (df["Family_Income"] - income_min) / (income_max - income_min)
+print("\nComputing priority scores using production scoring functions...")
 
-merit_norm = (
-    df["Mh_CET_Percentile"]
-    + df["JEE_Percentile"]
-    + df["12th_Percentage"]
-    + df["University_Test_Score"]
-    + df["10th_Percentage"]
-) / (5 * 100)
+priority_scores = []
 
-base_score = (income_norm * rules["income_weight"] * 100) + (merit_norm * rules["merit_weight"] * 100)
+for idx, row in df.iterrows():
+    # 1. Income Score (logarithmic decay — lower income → higher score)
+    income_s = calculate_income_score(float(row["Family_Income"]))
 
-bonus = np.zeros(N_STUDENTS)
+    # 2. Merit Score (sigmoid curve on raw exam average)
+    raw_merit = np.mean([
+        row["12th_Percentage"],
+        row["Mh_CET_Percentile"],
+        row["JEE_Percentile"],
+        row["University_Test_Score"],
+    ])
+    merit_s = calculate_merit_score(float(raw_merit))
 
-rule_a = (df["Family_Income"] < rules["income_threshold"]).astype(float) * rules["income_bonus"]
-bonus += rule_a
-print(f"  Rule A (Income < {rules['income_threshold']:,})  : {int(rule_a.sum() / rules['income_bonus'])} students affected")
+    # 3. Policy Score (rule-based bonuses with cap)
+    policy_s = calculate_policy_score(
+        caste_category=row["Caste_Category"],
+        domicile_maharashtra=int(row["Domicile_Maharashtra"]),
+        gender=row["Gender"],
+        disability_status=row["Disability_Status"],
+        extracurricular_score=float(row["Extracurricular_Score"]),
+        gap_year=int(row["Gap_Year"]),
+    )
 
-rule_b = df["Caste_Category"].isin(rules["reserved_categories"]).astype(float) * rules["reservation_bonus"]
-bonus += rule_b
-print(f"  Rule B (SC/ST bonus)            : {int(rule_b.sum() / rules['reservation_bonus'])} students affected")
+    # 4. Final Priority Score (weighted combination)
+    final_score = calculate_policy_priority_score(income_s, merit_s, policy_s)
 
-rule_c = (df["Extracurricular_Score"] > rules["extracurricular_threshold"]).astype(float) * rules["extracurricular_bonus"]
-bonus += rule_c
-print(f"  Rule C (Extra > {rules['extracurricular_threshold']})             : {int(rule_c.sum() / rules['extracurricular_bonus'])} students affected")
+    priority_scores.append(final_score)
 
-rule_d = (df["Disability_Status"] == "Yes").astype(float) * rules["pwd_bonus"]
-bonus += rule_d
-print(f"  Rule D (PwD bonus)              : {int(rule_d.sum() / rules['pwd_bonus'])} students affected")
-
-rule_e = (df["Gender"] == "Female").astype(float) * rules["girl_child_bonus"]
-bonus += rule_e
-print(f"  Rule E (Girl Child bonus)       : {int(rule_e.sum() / rules['girl_child_bonus'])} students affected")
-
-rule_f = (df["Gap_Year"] > 0).astype(float) * rules["gap_year_penalty"]
-bonus += rule_f
-print(f"  Rule F (Gap Year penalty)       : {int(rule_f.sum() / rules['gap_year_penalty'])} students affected")
-
-noise = np.random.normal(0, 5, N_STUDENTS)
-raw_score = base_score + bonus + noise
-df["Scholarship_Priority_Score"] = np.clip(raw_score, 0, 100).round(1)
+# Add small noise (±2 pts) for realistic variance, then clip to [0, 100]
+noise = np.random.normal(0, 2, N_STUDENTS)
+df["Scholarship_Priority_Score"] = np.clip(
+    np.array(priority_scores) + noise, 0, 100
+).round(1)
 
 print(
     f"\n  Score stats -> mean: {df['Scholarship_Priority_Score'].mean():.1f}  "

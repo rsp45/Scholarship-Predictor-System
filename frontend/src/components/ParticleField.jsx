@@ -15,7 +15,7 @@ export default function ParticleField({ className = '' }) {
     let animationId
     let particles = []
 
-    const PARTICLE_COUNT = 80
+    const PARTICLE_COUNT = 100
     const CONNECT_DISTANCE = 140
     const MOUSE_RADIUS = 180
 
