@@ -168,8 +168,8 @@ for idx, row in df.iterrows():
 
     priority_scores.append(final_score)
 
-# Add small noise (±2 pts) for realistic variance, then clip to [0, 100]
-noise = np.random.normal(0, 2, N_STUDENTS)
+# Add small noise (±5 pts) for realistic variance, then clip to [0, 100]
+noise = np.random.normal(0, 5, N_STUDENTS)
 df["Scholarship_Priority_Score"] = np.clip(
     np.array(priority_scores) + noise, 0, 100
 ).round(1)

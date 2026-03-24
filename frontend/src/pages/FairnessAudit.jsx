@@ -8,6 +8,7 @@ import {
   FileText,
   Download,
   Loader2,
+  Info,
 } from 'lucide-react'
 import {
   BarChart,
@@ -251,6 +252,46 @@ export default function FairnessAudit() {
               <p className="text-[11px] uppercase tracking-wider text-tejas-muted mb-1">Groups Above Aid Line</p>
               <p className="text-lg font-semibold text-tejas-text">{parityInsights.groupsAboveThreshold}</p>
               <p className="text-xs text-tejas-muted mt-1">Male or female group averages above the threshold</p>
+            </div>
+          </div>
+
+          {/* About This Audit – Description Panel */}
+          <div className="mt-6 rounded-xl border border-tejas-border bg-gradient-to-br from-tejas-grid/60 to-tejas-card px-5 py-5 animate-fade-in">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-7 h-7 rounded-lg bg-tejas-gold/10 border border-tejas-gold/20 flex items-center justify-center">
+                <Info className="w-4 h-4 text-tejas-gold" />
+              </div>
+              <h4 className="text-sm font-semibold text-tejas-text tracking-tight">About This Audit</h4>
+            </div>
+            <p className="text-xs text-tejas-muted leading-relaxed mb-3">
+              The Fairness and Bias Audit dashboard provides real-time transparency into how the Tejas scholarship 
+              allocation engine treats applicants across demographic groups. It is designed to detect, surface, 
+              and help correct any unintended bias in the scoring and selection pipeline.
+            </p>
+            <div className="space-y-2.5">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-tejas-gold shrink-0"></span>
+                <p className="text-xs text-tejas-muted leading-relaxed">
+                  <span className="text-tejas-text font-medium">Scoring Parity Analysis</span> — Compares average predicted priority scores between male and female applicants within each caste category to identify systematic scoring gaps.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-tejas-gold shrink-0"></span>
+                <p className="text-xs text-tejas-muted leading-relaxed">
+                  <span className="text-tejas-text font-medium">Decision Flags</span> — Heuristic rules automatically flag individual applicants whose outcomes may indicate potential bias, such as high-merit applicants receiving unexpectedly low scores.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 w-1.5 h-1.5 rounded-full bg-tejas-gold shrink-0"></span>
+                <p className="text-xs text-tejas-muted leading-relaxed">
+                  <span className="text-tejas-text font-medium">KPI Monitoring</span> — Tracks overall parity index, active bias flags, and model confidence to provide a quick health check on the fairness of the current allocation cycle.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 pt-3 border-t border-tejas-border/50">
+              <p className="text-[11px] text-tejas-muted leading-relaxed italic">
+                All metrics are computed live from the current applicant dataset and update automatically as new records are scored. This audit is intended as a transparency tool and does not alter allocation outcomes.
+              </p>
             </div>
           </div>
         </div>

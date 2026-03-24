@@ -30,9 +30,9 @@ const features = [
   },
   {
     icon: Scale,
-    title: 'Fair Allocation Engine',
+    title: 'Multi-Track Allocation Engine',
     description:
-      '40% Need + 40% Merit + 20% Policy weighted formula ensures equitable and transparent distribution.',
+      'Merit-Based (70% Merit) and Need-Based (70% Income) tracks ensure tailored and transparent distribution.',
     color: 'from-emerald-500/20 to-green-500/10',
     borderColor: 'border-emerald-500/20',
   },
